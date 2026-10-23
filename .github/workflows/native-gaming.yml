@@ -1,0 +1,44 @@
+name: Native gaming launcher build
+on:
+  push:
+    branches: ['feature/native-gaming-launcher']
+  pull_request:
+    paths: ['native/**', 'build-*.cmd', '.github/workflows/native-gaming.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build applications and test executables
+        shell: pwsh
+        run: |
+          cmd /c build-native.cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $compiler /nologo /codepage:65001 /target:exe /platform:x64 /out:dist\Gaming.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\Gaming.cs native\GamingTests.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Gaming test build failed' }
+          & $compiler /nologo /codepage:65001 /target:exe /platform:x64 /out:dist\OpenSeat.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\VmSeats.cs native\SelfTest.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Regression test build failed' }
+      - name: Run code tests only
+        shell: pwsh
+        env:
+          OPENSEAT_CI: '1'
+        run: |
+          & .\dist\Gaming.Tests.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Gaming tests failed' }
+          & .\dist\OpenSeat.Tests.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+      - name: Upload development build
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenSeat-native-gaming-development
+          path: |
+            dist/OpenSeat.exe
+            dist/OpenSeat.Gaming.exe
+            native/GAMING.md

@@ -16,103 +16,97 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: v0.3.0-preview.1
+      RELEASE_TAG: v0.4.0-preview.1
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Compile Windows x64 application
-        id: build
+      - name: Compile Windows x64 applications and tests
         shell: pwsh
         run: |
           cmd /c build-native.cmd
-          if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Application compilation failed' }
           $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          & $compiler /nologo /target:exe /platform:x64 /optimize+ /out:dist\OpenSeat.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\VmSeats.cs native\SelfTest.cs
-          if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
-      - name: Run native configuration and input parsing tests
-        id: tests
+          & $compiler /nologo /codepage:65001 /target:exe /platform:x64 /optimize+ /out:dist\OpenSeat.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\VmSeats.cs native\SelfTest.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Regression test compilation failed' }
+          & $compiler /nologo /codepage:65001 /target:exe /platform:x64 /optimize+ /out:dist\Gaming.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\Gaming.cs native\GamingTests.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Gaming test compilation failed' }
+      - name: Run configuration and Windows runtime tests
         shell: pwsh
         env:
           OPENSEAT_CI: '1'
         run: |
           & .\dist\OpenSeat.Tests.exe --self-test 2>&1 | Tee-Object -FilePath native-test-results.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Native self-tests failed' }
-          if (-not (Select-String -Path native-test-results.txt -Pattern '29 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
-      - name: Package executable and checksums
-        id: package
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+          & .\dist\Gaming.Tests.exe --self-test 2>&1 | Tee-Object -FilePath gaming-test-results.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Gaming tests failed' }
+          if (-not (Select-String native-test-results.txt -Pattern '29 checks passed' -Quiet)) { throw 'Expected regression count missing' }
+          if (-not (Select-String gaming-test-results.txt -Pattern '31 gaming checks passed' -Quiet)) { throw 'Expected interactive runtime test count missing' }
+      - name: Package both applications and checksums
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force package | Out-Null
-          Copy-Item dist\OpenSeat.exe package\OpenSeat.exe
-          Copy-Item README.md package\README.md
-          Copy-Item docs\使用说明书.md package\使用说明书.md
-          Copy-Item native-test-results.txt package\native-test-results.txt
+          Copy-Item dist\OpenSeat.exe,dist\OpenSeat.Gaming.exe package
+          Copy-Item README.md,native-test-results.txt,gaming-test-results.txt package
+          Copy-Item native\GAMING.md package\GAMING.md
+          @{
+            version = $env:RELEASE_TAG
+            source_sha = $env:GITHUB_SHA
+            run_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            code_checks_passed = 59
+            test_environment = 'Windows Server 2022 x64 GitHub runner'
+            physical_multiseat_validated = $false
+            game_compatibility_validated = $false
+            desktop_input_isolation = 'External engine required; not implemented by OpenSeat'
+          } | ConvertTo-Json | Set-Content package\BUILD-INFO.json -Encoding utf8
           @'
-          OpenSeat 0.3.0 Windows x64 preview
-          Run OpenSeat.exe directly. Requires .NET Framework 4.x.
-          This package was compiled on Windows and passed 29 native assertions.
-          Physical three-seat hardware has NOT been validated.
-          Independent desktops for seats 2 and 3 require VMware Workstation Pro virtual machines (see manual chapter 14).
-          The generated UI mockup is NOT implemented in this release.
+          OpenSeat 0.4.0-preview.1 / Windows x64
+          将两个 EXE 解压到同一目录，再运行 OpenSeat.exe。
+          点击“原生工位游戏…”打开游戏启动器；也可直接运行 OpenSeat.Gaming.exe。
+          游戏启动器在当前 Windows 会话运行，不创建独立桌面或分配键鼠。
+          三个独立工位需要另外安装、授权并配置外部多工位引擎。
+          LOL、三角洲、CF 是可配置启动项，不表示已通过游戏兼容性认证。
+          无 OpenSeat 登录、激活或角色权限系统；Windows 系统权限仍然适用。
+          .NET Framework 4.x required. EXEs are unsigned.
+          60 code checks passed. Physical hardware and real games NOT validated.
           '@ | Set-Content package\START-HERE.txt -Encoding utf8
-          Compress-Archive -Path package\* -DestinationPath OpenSeat-0.3.0-preview.1-win-x64.zip
-          $assets = @('dist\OpenSeat.exe', 'OpenSeat-0.3.0-preview.1-win-x64.zip')
-          $checksums = foreach ($asset in $assets) {
+          Compress-Archive -Path package\* -DestinationPath OpenSeat-0.4.0-preview.1-win-x64.zip
+          $assets = @('dist\OpenSeat.exe','dist\OpenSeat.Gaming.exe','OpenSeat-0.4.0-preview.1-win-x64.zip')
+          $lines = foreach ($asset in $assets) {
             $hash = Get-FileHash $asset -Algorithm SHA256
             "$($hash.Hash.ToLowerInvariant())  $(Split-Path $asset -Leaf)"
           }
-          $checksums | Set-Content SHA256SUMS.txt -Encoding ascii
-      - name: Publish private-repository prerelease
-        id: publish
+          $lines | Set-Content SHA256SUMS.txt -Encoding ascii
+      - name: Publish prerelease after successful build and tests
         shell: pwsh
         run: |
           @'
-          ## OpenSeat 0.3.0 三工位预览版
-
-          下载 OpenSeat-0.3.0-preview.1-win-x64.zip，解压后直接运行 OpenSeat.exe，无需安装 Python 或本机编译。包内附《使用说明书.md》。
-          目标环境：Windows 10 及以上 x64，需 .NET Framework 4.x。
-
-          - 已在 GitHub Windows runner 编译，29 项原生自检通过。
-          - 新增屏幕监控：工位卡片上方实时缩略图，点击打开放大监控窗（只读）。
-          - 新增虚拟机工位：配合 VMware Workstation Pro，工位 2、3 各运行一台 Windows 虚拟机，键鼠通过 USB 直通独占，三人可各自运行任意软件。
-          - 虚拟机工位要求三套键鼠为不同型号、非蓝牙；虚拟机内无法使用主机 RTX 显卡；每台虚拟机的 Windows 需单独授权。
-          - 三套真实硬件与 VMware 直通尚未实机验收。
-          - 本发布为未签名便携 EXE，并非安装程序。
-
-          附件包含直接运行的 EXE、完整便携 ZIP 和 SHA-256 校验文件。仓库保持私有。
+          ## OpenSeat 0.4.0 开发预览版
+          
+          下载 **OpenSeat-0.4.0-preview.1-win-x64.zip**，解压后将两个 EXE 保持在同一目录，运行 OpenSeat.exe。
+          Windows 10 及以上 x64 为目标环境，需要 .NET Framework 4.x；本次编译及自动化测试环境为 Windows Server 2022。
+          
+          ### 本次新增
+          - 原生会话游戏启动器：配置 LOL、三角洲、CF 的官方启动器路径与参数。
+          - 当前 Windows 会话内启动、重复启动拦截、进程跟踪和手动窗口定位。
+          - 会话诊断、按用户保存配置、日志轮转。
+          - 打开游戏入口时暂停输入测试和屏幕监控。
+          - 修复 C:game.exe、\game.exe 等不完整 Windows 路径被错误接受的问题。
+          - 包含 0.3.1 修复：无 VID/PID 的设备显示可读名称、窗口标题更新；屏幕监控与虚拟机工位另有 24 项 Windows 集成测试。
+          
+          ### 测试与功能边界
+          - 31 项启动器测试 + 29 项原有自检通过，包含真实子进程和窗口生命周期测试。
+          - **这不是三人游戏完整实现。** 独立桌面、物理键鼠独占、图形资源分配仍依赖另行安装和配置的外部多工位引擎。
+          - 不包含 ASTER 驱动或许可证，也没有自动集成其 SDK。
+          - 游戏名称只是可配置启动项；三屏硬件、真实游戏对局和反作弊兼容性均未验证。
+          - 无新增 OpenSeat 账号、激活或角色权限体系。
+          - 保留已有输入测试、屏幕监控与 VMware 配置功能；EXE 未签名。
+          
+          附件：完整 ZIP、两个独立 EXE、SHA256SUMS.txt。推荐下载 ZIP。
           '@ | Set-Content release-notes.md -Encoding utf8
-          gh release create $env:RELEASE_TAG dist/OpenSeat.exe OpenSeat-0.3.0-preview.1-win-x64.zip SHA256SUMS.txt --target $env:GITHUB_SHA --title 'OpenSeat 0.3.0 — 屏幕监控与 VMware 虚拟机工位' --notes-file release-notes.md --prerelease --latest=false
+          gh release create $env:RELEASE_TAG dist/OpenSeat.exe dist/OpenSeat.Gaming.exe OpenSeat-0.4.0-preview.1-win-x64.zip SHA256SUMS.txt --target $env:GITHUB_SHA --title 'OpenSeat 0.4.0 — 原生会话游戏启动器（开发预览）' --notes-file release-notes.md --draft --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Draft creation or upload failed' }
+          $release = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $release.assets.Count -ne 4) { throw 'Release asset verification failed' }
+          gh release edit $env:RELEASE_TAG --draft=false --prerelease --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
-      - name: Record build and publication outcome
-        if: always()
-        shell: pwsh
-        env:
-          BUILD_OUTCOME: ${{ steps.build.outcome }}
-          TEST_OUTCOME: ${{ steps.tests.outcome }}
-          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
-          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
-        run: |
-          $record = @{
-            tag = $env:RELEASE_TAG
-            source_sha = $env:GITHUB_SHA
-            run_id = $env:GITHUB_RUN_ID
-            run_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-            build = $env:BUILD_OUTCOME
-            tests = $env:TEST_OUTCOME
-            package = $env:PACKAGE_OUTCOME
-            publish = $env:PUBLISH_OUTCOME
-            release_url = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG"
-            timestamp_utc = [DateTime]::UtcNow.ToString('o')
-          } | ConvertTo-Json
-          $endpoint = "repos/$env:GITHUB_REPOSITORY/contents/.release-status/$env:RELEASE_TAG.json"
-          $old = gh api $endpoint 2>$null | ConvertFrom-Json
-          $payload = @{
-            message = "ci: record $env:RELEASE_TAG build outcome"
-            content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($record))
-            branch = 'main'
-          }
-          if ($old.sha) { $payload.sha = $old.sha }
-          $payload | ConvertTo-Json | Set-Content outcome-request.json -Encoding utf8
-          gh api --method PUT $endpoint --input outcome-request.json
-          if ($LASTEXITCODE -ne 0) { throw 'Could not record release outcome' }

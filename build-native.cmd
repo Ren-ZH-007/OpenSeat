@@ -13,5 +13,8 @@ if errorlevel 1 (
   echo Build failed. See compiler errors above.
   exit /b 1
 )
+call build-gaming.cmd
+if errorlevel 1 exit /b 1
 echo Build complete: dist\OpenSeat.exe
 exit /b 0
+
