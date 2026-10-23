@@ -275,7 +275,7 @@ namespace OpenSeatNative {
                     timer.Stop(); timer.Dispose();
                     WindowTools.MoveAndMaximize(h, bounds);
                     WindowTools.SetForegroundWindow(Handle); // 把主机键盘焦点拿回主机工位
-                    status.Text = seatName + " 的虚拟机窗口已放到目标屏幕。如需全屏，用该工位鼠标点一下虚拟机画面后按 Ctrl+Alt+Enter。";
+                    status.Text = seatName + " 的虚拟机窗口已放到目标屏幕并最大化。如需全屏：用主机工位的鼠标点该窗口菜单“查看 → 全屏”，完成后再锁定主机鼠标。";
                 } else if (DateTime.UtcNow > until) { timer.Stop(); timer.Dispose(); status.Text = "60 秒内没找到“" + title + "”的 VMware 窗口，请手动把它拖到对应屏幕。"; }
             };
             timer.Start();

@@ -28,7 +28,7 @@ jobs:
           OPENSEAT_CI: '1'
         run: |
           & .\dist\OpenSeat.Tests.exe --self-test 2>&1 | Tee-Object -FilePath native-test-results.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Native self-tests failed' }
+          if ($LASTEXITCODE -ne 0) { Get-Content native-test-results.txt | Select-Object -First 6 | ForEach-Object { Write-Output "::error::$_" }; throw 'Native self-tests failed' }
           if (-not (Select-String -Path native-test-results.txt -Pattern '28 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
       - uses: actions/upload-artifact@v4
         with:
