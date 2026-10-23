@@ -20,8 +20,10 @@ jobs:
         run: |
           try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { Write-Output "resolution unchanged: $_" }
       - name: Run app and capture
-        shell: pwsh
+        shell: powershell
         run: |
+          $ErrorActionPreference = 'Continue'
+          try {
           Add-Type -AssemblyName System.Drawing, System.Windows.Forms, UIAutomationClient, UIAutomationTypes
           New-Item -ItemType Directory -Force shots | Out-Null
           function Shot($name) {
@@ -43,11 +45,14 @@ jobs:
           if ($main) { $main.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).SetWindowVisualState('Maximized') }
           Start-Sleep -Seconds 2
           Shot '1-main'
-          Click (Find $root '虚拟机工位…'); Start-Sleep -Seconds 2
+          $vmName = -join ([char[]](0x865A,0x62DF,0x673A,0x5DE5,0x4F4D,0x2026)); Click (Find $root $vmName); Start-Sleep -Seconds 2
           Shot '2-vm-seats'
           [System.Windows.Forms.SendKeys]::SendWait('%{F4}'); Start-Sleep -Seconds 1
           $p | Stop-Process -Force
+          } catch { Write-Output "::error::$($_.Exception.Message) at $($_.InvocationInfo.ScriptLineNumber)" }
+          Get-ChildItem shots | ForEach-Object { Write-Output "::notice::shot $($_.Name) $($_.Length)" }
       - name: Publish screenshots to branch
+        if: always()
         shell: pwsh
         run: |
           git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
