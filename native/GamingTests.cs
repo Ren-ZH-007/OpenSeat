@@ -68,8 +68,21 @@ namespace OpenSeatGaming {
                         Assert(executables.Length == 3 && argsBoxes.Length == 3, "three editable game profiles created");
                         // Use the actual StartGame path, not just ProcessStartInfo construction.
                         executables[0].Text = probe.Executable; argsBoxes[0].Text = probe.Arguments;
-                        typeof(GamingWindow).GetMethod("StartGame", flags).Invoke(window, new object[] { 0 });
-                        Assert(handles[0] != null && handles[0].WaitForExit(10000), "UI start path launches child");
+                        bool interactive;
+                        using (Process current = Process.GetCurrentProcess()) interactive = Environment.UserInteractive && current.SessionId != 0;
+                        if (interactive) {
+                            typeof(GamingWindow).GetMethod("StartGame", flags).Invoke(window, new object[] { 0 });
+                            Assert(handles[0] != null && handles[0].WaitForExit(10000), "UI start path launches child");
+                        } else {
+                            bool rejected = false;
+                            try { typeof(GamingWindow).GetMethod("StartGame", flags).Invoke(window, new object[] { 0 }); }
+                            catch (TargetInvocationException ex) { rejected = ex.InnerException is InvalidOperationException; }
+                            Assert(rejected && handles[0] == null, "non-interactive game launch rejected");
+                            // Exercise the process watcher separately when the runner has no user desktop.
+                            handles[0] = Process.Start(Launcher.Prepare(probe));
+                            Assert(handles[0].WaitForExit(10000), "watcher child exits");
+                            Console.WriteLine("Interactive UI launch skipped: CI runs outside an interactive user session.");
+                        }
                         typeof(GamingWindow).GetMethod("RefreshProcesses", flags).Invoke(window, null);
                         Assert(handles[0] == null && labels[0].Text.Contains("游戏状态未知"), "exited launcher is not reported as stopped game");
                         typeof(GamingWindow).GetMethod("RefreshInventory", flags).Invoke(window, null);
