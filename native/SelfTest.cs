@@ -6,6 +6,10 @@ using System.Windows.Forms;
 namespace OpenSeatNative {
     public static class SelfTest {
         static int count;
+        static void Notify(string message, string title) {
+            if (Environment.GetEnvironmentVariable("OPENSEAT_CI") == "1") Console.WriteLine(title + ": " + message);
+            else MessageBox.Show(message, title);
+        }
         static void Assert(bool condition,string name) { if(!condition) throw new Exception(name); count++; }
         static void Reject(Action action,string name) { bool rejected=false; try { action(); } catch(InvalidDataException) { rejected=true; } Assert(rejected,name); }
         static void Packet(uint kind,Action<IntPtr,int> test) {
@@ -41,8 +45,8 @@ namespace OpenSeatNative {
                     Marshal.WriteInt16(p,h+2,1); Assert(!Native.Decode(p,(uint)(h+16)).KeyDown,"key break");
                     Marshal.WriteInt16(p,h+2,0); Marshal.WriteInt16(p,h,255); Assert(!Native.Decode(p,(uint)(h+16)).KeyDown,"keyboard overrun ignored");
                 });
-                MessageBox.Show(count+" checks passed.\nHardware routing and desktop isolation are NOT validated.","OpenSeat self-test"); return 0;
-            } catch(Exception ex) { MessageBox.Show(ex.ToString(),"OpenSeat self-test FAILED"); return 1; }
+                Notify(count+" checks passed.\nHardware routing and desktop isolation are NOT validated.","OpenSeat self-test"); return 0;
+            } catch(Exception ex) { Notify(ex.ToString(),"OpenSeat self-test FAILED"); return 1; }
             finally { if(Directory.Exists(directory)) Directory.Delete(directory,true); }
         }
     }
