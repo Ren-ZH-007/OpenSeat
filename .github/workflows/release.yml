@@ -40,7 +40,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
           & .\dist\Gaming.Tests.exe --self-test 2>&1 | Tee-Object -FilePath gaming-test-results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Gaming tests failed' }
-          if (-not (Select-String native-test-results.txt -Pattern '28 checks passed' -Quiet)) { throw 'Expected regression count missing' }
+          if (-not (Select-String native-test-results.txt -Pattern '29 checks passed' -Quiet)) { throw 'Expected regression count missing' }
           if (-not (Select-String gaming-test-results.txt -Pattern '31 gaming checks passed' -Quiet)) { throw 'Expected interactive runtime test count missing' }
       - name: Package both applications and checksums
         shell: pwsh
@@ -68,7 +68,7 @@ jobs:
           LOL、三角洲、CF 是可配置启动项，不表示已通过游戏兼容性认证。
           无 OpenSeat 登录、激活或角色权限系统；Windows 系统权限仍然适用。
           .NET Framework 4.x required. EXEs are unsigned.
-          59 code checks passed. Physical hardware and real games NOT validated.
+          60 code checks passed. Physical hardware and real games NOT validated.
           '@ | Set-Content package\START-HERE.txt -Encoding utf8
           Compress-Archive -Path package\* -DestinationPath OpenSeat-0.4.0-preview.1-win-x64.zip
           $assets = @('dist\OpenSeat.exe','dist\OpenSeat.Gaming.exe','OpenSeat-0.4.0-preview.1-win-x64.zip')
@@ -92,9 +92,10 @@ jobs:
           - 会话诊断、按用户保存配置、日志轮转。
           - 打开游戏入口时暂停输入测试和屏幕监控。
           - 修复 C:game.exe、\game.exe 等不完整 Windows 路径被错误接受的问题。
+          - 包含 0.3.1 修复：无 VID/PID 的设备显示可读名称、窗口标题更新；屏幕监控与虚拟机工位另有 24 项 Windows 集成测试。
           
           ### 测试与功能边界
-          - 31 项启动器测试 + 28 项原有自检通过，包含真实子进程和窗口生命周期测试。
+          - 31 项启动器测试 + 29 项原有自检通过，包含真实子进程和窗口生命周期测试。
           - **这不是三人游戏完整实现。** 独立桌面、物理键鼠独占、图形资源分配仍依赖另行安装和配置的外部多工位引擎。
           - 不包含 ASTER 驱动或许可证，也没有自动集成其 SDK。
           - 游戏名称只是可配置启动项；三屏硬件、真实游戏对局和反作弊兼容性均未验证。

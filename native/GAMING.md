@@ -37,7 +37,7 @@ implemented in this change; each user launches games in their own session.
 Run `build-native.cmd` on Windows x64 with the .NET Framework compiler. It builds
 both `dist/OpenSeat.exe` and `dist/OpenSeat.Gaming.exe`; distribute them together.
 `build-gaming.cmd` builds just the new launcher. Both development CI and the v0.4 release workflow package both executables.
-Release checks run all 59 assertions before publishing and include test logs,
+Release checks run all 60 assertions before publishing and include test logs,
 build provenance and SHA-256 checksums.
 
 The new main-window button stops input tests and pauses/closes OpenSeat screen

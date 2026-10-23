@@ -89,6 +89,8 @@ namespace OpenSeatNative {
             return m.Success && m.Groups[1].Value.Trim() != "" ? m.Groups[1].Value : fallback;
         }
 
+        // vmware.exe：-n 新窗口，-x 开机（不直接全屏，便于先把窗口移到目标屏幕）。
+        public static string LaunchArguments(string vmxPath) { return "-n -x \"" + vmxPath + "\""; }
         public static bool IsRunning(string vmxPath) { return Directory.Exists(vmxPath + ".lck"); }
 
         public static void WriteVmx(string vmxPath, List<UsbId> devices) {
@@ -262,7 +264,7 @@ namespace OpenSeatNative {
             foreach (Seat s in config.Seats) {
                 if (s.VmxPath == "") continue;
                 string title = VmPlan.DisplayName(File.ReadAllText(s.VmxPath, Encoding.UTF8), Path.GetFileNameWithoutExtension(s.VmxPath));
-                if (!VmPlan.IsRunning(s.VmxPath)) Process.Start(new ProcessStartInfo(exe, "-n -x \"" + s.VmxPath + "\"") { UseShellExecute = false });
+                if (!VmPlan.IsRunning(s.VmxPath)) Process.Start(new ProcessStartInfo(exe, VmPlan.LaunchArguments(s.VmxPath)) { UseShellExecute = false });
                 Place(title, ScreenCapture.Find(s.Monitor).Bounds, s.Name);
             }
             status.Text = "正在启动虚拟机并移动到各自屏幕…";
