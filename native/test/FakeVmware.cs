@@ -11,7 +11,12 @@ public static class FakeVmware {
     public static int Main(string[] args) {
         string log = Environment.GetEnvironmentVariable("OPENSEAT_FAKE_VMWARE_LOG");
         string vmx = args.Length > 0 ? args[args.Length - 1] : "";
-        if (!String.IsNullOrEmpty(log)) File.AppendAllText(log, String.Join("|", args) + Environment.NewLine);
+        // 两台“虚拟机”几乎同时启动，会同时写同一个日志：文件被占用时重试，避免测试工具自身崩溃。
+        if (!String.IsNullOrEmpty(log))
+            for (int attempt = 0; ; attempt++) {
+                try { File.AppendAllText(log, String.Join("|", args) + Environment.NewLine); break; }
+                catch (IOException) { if (attempt >= 100) throw; System.Threading.Thread.Sleep(20); }
+            }
         string name = Path.GetFileNameWithoutExtension(vmx);
         if (File.Exists(vmx)) {
             Match m = Regex.Match(File.ReadAllText(vmx), "^\\s*displayName\\s*=\\s*\"([^\"]*)\"", RegexOptions.Multiline);
