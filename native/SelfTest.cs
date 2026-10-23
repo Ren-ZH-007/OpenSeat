@@ -59,6 +59,21 @@ namespace OpenSeatNative {
                 Reject(named.Validate,"overlong seat name rejected");
                 Assert(ScreenCapture.Fit(new System.Drawing.Size(1920,1080),new System.Drawing.Size(320,180))==new System.Drawing.Rectangle(0,0,320,180),"monitor thumbnail fit landscape");
                 Assert(ScreenCapture.Fit(new System.Drawing.Size(1080,1920),new System.Drawing.Size(320,180))==new System.Drawing.Rectangle(109,0,101,180) && ScreenCapture.Fit(new System.Drawing.Size(0,0),new System.Drawing.Size(320,180)).IsEmpty,"monitor thumbnail fit portrait and empty");
+                VmPlan.UsbId usb;
+                Assert(VmPlan.TryParseUsb(@"\\?\HID#VID_046D&PID_C52B&MI_01&Col01#7&2a0f&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91e6bf6}",out usb) && usb.Vid==0x046D && usb.Pid==0xC52B && VmPlan.Format(usb)=="vid:0x046d pid:0xc52b","vm usb id parse");
+                string bt=@"\\?\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&0002046d_PID&b023&Col01#8&1b2c&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91e6bf6}";
+                Assert(VmPlan.IsBluetooth(bt) && !VmPlan.TryParseUsb(bt,out usb),"vm bluetooth rejected");
+                string vmx=".encoding = \"UTF-8\"\r\ndisplayName = \"Seat Two\"\r\nusb.present = \"FALSE\"\r\nusb.autoConnect.device0 = \"vid:0x1111 pid:0x2222\"\r\nmemsize = \"4096\"\r\n";
+                string patched=VmPlan.ApplyUsb(vmx,new System.Collections.Generic.List<VmPlan.UsbId> { usb });
+                Assert(patched.Contains("memsize = \"4096\"\r\n") && !patched.Contains("0x1111") && !patched.Contains("FALSE") && patched.Contains("usb.generic.allowHID = \"TRUE\"\r\n") && patched.Contains("usb.autoConnect.device0 = \"vid:0x046d pid:0xc52b\"\r\n") && !patched.Contains("allowLastHID"),"vmx usb rewrite");
+                Assert(VmPlan.DisplayName(vmx,"x")=="Seat Two" && VmPlan.DisplayName("memsize = \"1\"","fallback")=="fallback","vmx display name");
+                var plan=new Settings();
+                plan.Seats[0].Mouse=@"\\?\HID#VID_1111&PID_0001#a"; plan.Seats[1].Mouse=@"\\?\HID#VID_2222&PID_0002#b"; plan.Seats[2].Mouse=@"\\?\HID#VID_3333&PID_0003#c";
+                plan.Seats[1].VmxPath=@"C:\vm\b.vmx"; plan.Seats[2].VmxPath=@"C:\vm\c.vmx";
+                Assert(VmPlan.Check(plan)=="","vm plan valid");
+                plan.Seats[2].Mouse=@"\\?\HID#VID_1111&PID_0001#other-port"; bool sameModel=VmPlan.Check(plan)!="";
+                plan.Seats[2].Mouse=@"\\?\HID#VID_3333&PID_0003#c"; plan.Seats[1].VmxPath=""; bool twoHosts=VmPlan.Check(plan)!="";
+                Assert(sameModel && twoHosts,"vm plan rejects same model and two hosts");
                 Notify(count+" checks passed.\nHardware routing and desktop isolation are NOT validated.","OpenSeat self-test"); return 0;
             } catch(Exception ex) { Notify(ex.ToString(),"OpenSeat self-test FAILED"); return 1; }
             finally { if(Directory.Exists(directory)) Directory.Delete(directory,true); }

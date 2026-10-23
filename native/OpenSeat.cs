@@ -17,10 +17,12 @@ namespace OpenSeatNative {
         public string Monitor = "";
         public string Mouse = "";
         public string Keyboard = "";
+        public string VmxPath = "";
     }
     public class Settings {
         public const int MaxNameLength = 40;
         public int Version = 1;
+        public string VmwarePath = "";
         public Seat[] Seats = new Seat[] {
             new Seat { Name = "工位 1" }, new Seat { Name = "工位 2" }, new Seat { Name = "工位 3" }
         };
@@ -28,14 +30,17 @@ namespace OpenSeatNative {
             if (Version != 1 || Seats == null || Seats.Length != 3) throw new InvalidDataException("必须是三工位版本 1 配置。");
             var devices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var monitors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var machines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (VmwarePath == null) throw new InvalidDataException("VMware 路径字段无效。");
             foreach (Seat s in Seats) {
-                if (s == null || s.Mouse == null || s.Keyboard == null || s.Monitor == null)
+                if (s == null || s.Mouse == null || s.Keyboard == null || s.Monitor == null || s.VmxPath == null)
                     throw new InvalidDataException("工位字段无效。");
                 if (String.IsNullOrWhiteSpace(s.Name) || s.Name.Length > MaxNameLength)
                     throw new InvalidDataException("工位名称不能为空，且不能超过 " + MaxNameLength + " 个字符。");
                 foreach (string id in new string[] { s.Mouse, s.Keyboard })
                     if (id != "" && !devices.Add(id)) throw new InvalidDataException("同一个输入设备不能同时分配给两个工位。");
                 if (s.Monitor != "" && !monitors.Add(s.Monitor)) throw new InvalidDataException("同一显示器不能分配给两个工位。");
+                if (s.VmxPath != "" && !machines.Add(s.VmxPath)) throw new InvalidDataException("同一台虚拟机不能分配给两个工位。");
             }
         }
         public static Settings Load(string path) {
@@ -296,7 +301,7 @@ namespace OpenSeatNative {
         string configPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OpenSeat","three-seat.xml");
         ComboBox[] screens=new ComboBox[3]; Label[] bindings=new Label[3]; TextBox[] nameBoxes=new TextBox[3];
         MonitorTile[] tiles=new MonitorTile[3]; MonitorWindow[] monitorWindows=new MonitorWindow[3];
-        CheckBox monitorToggle; Timer monitorClock=new Timer();
+        CheckBox monitorToggle; Timer monitorClock=new Timer(); VmSeatsWindow vmWindow;
         List<TestWindow> windows=new List<TestWindow>();
         Dictionary<IntPtr,string> names=new Dictionary<IntPtr,string>();
         HashSet<string> known=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -312,11 +317,12 @@ namespace OpenSeatNative {
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute,320)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,54));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent,100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
             Controls.Add(layout);
-            var title=new Label { Text="OpenSeat / 三工位\n真实设备识别与应用内输入路由；完整桌面隔离引擎尚未实现。",Dock=DockStyle.Fill,Font=new Font(Font.FontFamily,15,FontStyle.Bold) };
+            var title=new Label { Text="OpenSeat / 三工位\n输入测试 · 屏幕监控 · VMware 虚拟机工位（三人各用独立 Windows）",Dock=DockStyle.Fill,Font=new Font(Font.FontFamily,15,FontStyle.Bold) };
             layout.Controls.Add(title,0,0);
             var toolbar=new FlowLayoutPanel { Dock=DockStyle.Fill };
             toolbar.Controls.Add(Button("刷新设备 / 屏幕", RefreshInventory)); toolbar.Controls.Add(Button("显示屏编号", Identify));
             toolbar.Controls.Add(Button("保存配置", Save)); toolbar.Controls.Add(Button("导入配置", Import)); toolbar.Controls.Add(Button("导出配置", Export));
+            toolbar.Controls.Add(Button("虚拟机工位…", OpenVmSeats));
             monitorToggle=new CheckBox { Text="屏幕监控",Checked=true,AutoSize=true,Margin=new Padding(12,9,3,3) };
             monitorToggle.CheckedChanged+=delegate { if(monitorToggle.Checked) RefreshMonitors(); else foreach(MonitorTile tile in tiles) tile.ShowMessage("屏幕监控已暂停"); };
             toolbar.Controls.Add(monitorToggle);
@@ -378,6 +384,13 @@ namespace OpenSeatNative {
             var window=new MonitorWindow(config.Seats[seat].Name,delegate { return config.Seats[seat].Monitor; },Screen.FromControl(this).WorkingArea);
             monitorWindows[seat]=window; window.Show(this);
         }
+        void OpenVmSeats() {
+            if(vmWindow!=null && !vmWindow.IsDisposed) { if(vmWindow.WindowState==FormWindowState.Minimized) vmWindow.WindowState=FormWindowState.Normal; vmWindow.Activate(); return; }
+            Stop();
+            vmWindow=new VmSeatsWindow(config,delegate { dirty=true; });
+            vmWindow.FormClosed+=delegate { UpdateLabels(); };
+            vmWindow.Show(this);
+        }
         Button Button(string text, Action action) { var b=new Button { Text=text,AutoSize=true,Height=34,Margin=new Padding(3) }; b.Click+=delegate { try { action(); } catch(Exception ex) { Error(ex); } }; return b; }
         void Error(Exception ex) { MessageBox.Show(this,ex.Message,"OpenSeat",MessageBoxButtons.OK,MessageBoxIcon.Error); }
         static string Online(string id, Dictionary<string,uint> online) { return online==null ? "" : (online.ContainsKey(id) ? " [在线]" : " [离线]"); }
@@ -396,7 +409,7 @@ namespace OpenSeatNative {
             b.AppendLine("Raw Input 设备（不是 PnP 清单的 ID；复合接收器可能合并设备）：");
             var online=Native.Inventory(); foreach(var item in online) b.AppendLine("  "+(item.Value==0 ? "鼠标 " : "键盘 ")+Native.DeviceLabel(item.Key)+"  "+item.Key);
             b.AppendLine("工位绑定：");
-            foreach(Seat s in config.Seats) b.AppendLine("  "+s.Name+" | 屏幕："+Native.MonitorLabel(s.Monitor)+"\r\n    鼠标："+(s.Mouse==""?"未绑定":s.Mouse+Online(s.Mouse,online))+"\r\n    键盘："+(s.Keyboard==""?"未绑定":s.Keyboard+Online(s.Keyboard,online)));
+            foreach(Seat s in config.Seats) b.AppendLine("  "+s.Name+" | 屏幕："+Native.MonitorLabel(s.Monitor)+" | "+(s.VmxPath==""?"主机工位":"虚拟机："+s.VmxPath)+"\r\n    鼠标："+(s.Mouse==""?"未绑定":s.Mouse+Online(s.Mouse,online))+"\r\n    键盘："+(s.Keyboard==""?"未绑定":s.Keyboard+Online(s.Keyboard,online)));
             b.AppendLine("desktopIsolation=false; sessionEngine=false; audioRouting=false; inputTestOnly=true"); return b.ToString();
         }
         void RefreshInventory() {
@@ -502,13 +515,13 @@ namespace OpenSeatNative {
         }
         void Save() { config.Save(configPath); dirty=false; status.Text="已保存："+configPath; }
         bool ConfirmDiscard() { if(!dirty) return true; var answer=MessageBox.Show(this,"保存当前绑定配置？","未保存修改",MessageBoxButtons.YesNoCancel); if(answer==DialogResult.Cancel) return false; if(answer==DialogResult.Yes) { try { Save(); } catch(Exception ex) { Error(ex); return false; } } return true; }
-        void Import() { if(!ConfirmDiscard()) return; using(var dialog=new OpenFileDialog { Filter="OpenSeat XML|*.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { Settings candidate=Settings.Load(dialog.FileName); Stop(); config=candidate; dirty=true; RefreshInventory(); status.Text="已导入，尚未保存；确认无误后请点“保存配置”。"; } }
+        void Import() { if(!ConfirmDiscard()) return; using(var dialog=new OpenFileDialog { Filter="OpenSeat XML|*.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { Settings candidate=Settings.Load(dialog.FileName); Stop(); if(vmWindow!=null && !vmWindow.IsDisposed) vmWindow.Close(); config=candidate; dirty=true; RefreshInventory(); status.Text="已导入，尚未保存；确认无误后请点“保存配置”。"; } }
         void Export() { using(var dialog=new SaveFileDialog { Filter="OpenSeat XML|*.xml",FileName="three-seat.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { config.Save(dialog.FileName); status.Text="已导出："+dialog.FileName; } }
         void Report() { using(var dialog=new SaveFileDialog { Filter="文本报告|*.txt",FileName="OpenSeat-diagnostics.txt" }) if(dialog.ShowDialog(this)==DialogResult.OK) { File.WriteAllText(dialog.FileName,Describe(),Encoding.UTF8); status.Text="诊断报告已导出（含设备实例 ID，不含输入内容）。"; } }
         protected override void Dispose(bool disposing) { if(disposing) { clock.Dispose(); monitorClock.Dispose(); } base.Dispose(disposing); }
     }
     public static class Program {
-        public const string AppVersion="0.2.2";
+        public const string AppVersion="0.3.0";
         [STAThread] public static int Main(string[] args) {
             if(args.Length>0 && args[0]=="--self-test") return SelfTest.Run();
             try { Native.SetProcessDPIAware(); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new MainWindow()); return 0; }

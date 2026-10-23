@@ -20,7 +20,7 @@ jobs:
           cmd /c build-native.cmd
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
           $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          & $compiler /nologo /target:exe /platform:x64 /optimize+ /out:dist\OpenSeat.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\SelfTest.cs
+          & $compiler /nologo /target:exe /platform:x64 /optimize+ /out:dist\OpenSeat.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\VmSeats.cs native\SelfTest.cs
           if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
       - name: Run native self-tests
         shell: pwsh
@@ -29,7 +29,7 @@ jobs:
         run: |
           & .\dist\OpenSeat.Tests.exe --self-test 2>&1 | Tee-Object -FilePath native-test-results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Native self-tests failed' }
-          if (-not (Select-String -Path native-test-results.txt -Pattern '22 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
+          if (-not (Select-String -Path native-test-results.txt -Pattern '28 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
       - uses: actions/upload-artifact@v4
         with:
           name: OpenSeat-win-x64-ci
