@@ -8,7 +8,7 @@
 
 ## 下载
 
-[完整 Windows ZIP](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.4.0-preview.1/OpenSeat-0.4.0-preview.1-win-x64.zip) · [发布页面](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.4.0-preview.1)
+[完整 Windows ZIP](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.4.1-preview.1/OpenSeat-0.4.1-preview.1-win-x64.zip) · [发布页面](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.4.1-preview.1)
 
 解压后保留 OpenSeat.exe 和 OpenSeat.Gaming.exe 在同一目录，运行 OpenSeat.exe，点击“原生工位游戏…”。也可以在每个已经建立的独立用户会话中直接运行 OpenSeat.Gaming.exe。
 
