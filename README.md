@@ -10,7 +10,7 @@
 
 ## 下载已编译版本
 
-[下载 Windows x64 便携包](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.0-preview.1/OpenSeat-0.2.0-preview.1-win-x64.zip) · [直接下载 EXE](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.0-preview.1/OpenSeat.exe) · [发布说明](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.2.0-preview.1)
+[下载 Windows x64 便携包](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.1-preview.1/OpenSeat-0.2.1-preview.1-win-x64.zip) · [直接下载 EXE](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.1-preview.1/OpenSeat.exe) · [发布说明](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.2.1-preview.1)
 
 私有仓库需要登录有权限的 GitHub 账号。便携包解压后运行 `OpenSeat.exe`，无需 Python 或本机编译；需 .NET Framework 4.x。程序未进行代码签名。这是技术验证预发布版，模拟效果图尚未应用到实际界面。
 
