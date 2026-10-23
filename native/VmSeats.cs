@@ -36,7 +36,7 @@ namespace OpenSeatNative {
         public static string Check(Settings config) {
             int hosts = 0;
             var owner = new Dictionary<string, string>();
-            foreach (Seat s in config.Seats) {
+            foreach (Seat s in config.Active()) {
                 if (s.VmxPath == "") { hosts++; }
                 else {
                     if (s.Mouse == "") return s.Name + "：虚拟机工位必须先绑定鼠标。";
@@ -55,9 +55,9 @@ namespace OpenSeatNative {
                     owner[key] = s.Name;
                 }
             }
-            if (hosts != 1) return "必须正好有一个工位留空虚拟机文件（作为主机工位），另外两个工位各选一台虚拟机。";
+            if (hosts != 1) return "必须正好有一个工位留空虚拟机文件（作为主机工位），其余 " + (config.Active().Length - 1) + " 个工位各选一台虚拟机。";
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (Seat s in config.Seats) if (s.VmxPath != "" && !paths.Add(s.VmxPath)) return "两个工位不能使用同一台虚拟机。";
+            foreach (Seat s in config.Active()) if (s.VmxPath != "" && !paths.Add(s.VmxPath)) return "两个工位不能使用同一台虚拟机。";
             return "";
         }
 
@@ -166,20 +166,21 @@ namespace OpenSeatNative {
         const int HotKeyId = 0x4F53;
         public VmSeatsWindow(Settings settings, Action onChanged) {
             config = settings; markDirty = onChanged;
-            Text = "虚拟机工位（VMware Workstation）"; Size = new Size(900, 560); MinimumSize = new Size(760, 520);
+            Text = "虚拟机工位（VMware Workstation · " + settings.Layout() + "）"; Size = new Size(900, 560); MinimumSize = new Size(760, 520);
             Font = new Font("Microsoft YaHei UI", 10); StartPosition = FormStartPosition.CenterParent;
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 6 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 230));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             Controls.Add(layout);
-            layout.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "一个工位留空作为主机工位（使用本机 Windows），另外两个工位各选一台已关机的 VMware 虚拟机（.vmx）。\nOpenSeat 会把该工位绑定的键鼠写成 USB 直通，虚拟机开机后独占这套键鼠。" }, 0, 0);
+            layout.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "一个工位留空作为主机工位（使用本机 Windows），其余工位各选一台已关机的 VMware 虚拟机（.vmx）。双屏时只需一台虚拟机。\nOpenSeat 会把该工位绑定的键鼠写成 USB 直通，虚拟机开机后独占这套键鼠。" }, 0, 0);
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 3 };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
-            for (int i = 0; i < 3; i++) {
+            int seats = config.Active().Length; // 窗口打开期间工位数量不变；主窗口切换数量时会先关闭本窗口
+            for (int i = 0; i < seats; i++) {
                 int seat = i;
-                grid.RowStyles.Add(new RowStyle(SizeType.Percent, 33.3f));
+                grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / seats));
                 grid.Controls.Add(new Label { Text = config.Seats[i].Name, AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(3, 8, 3, 3) }, 0, i);
                 var cell = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
                 paths[i] = new TextBox { Width = 470, ReadOnly = true, Text = config.Seats[i].VmxPath };
@@ -218,7 +219,7 @@ namespace OpenSeatNative {
         void UpdateNotes() {
             string exe = VmPlan.FindVmware(config.VmwarePath);
             vmwarePath.Text = exe ?? "未找到。请安装 VMware Workstation Pro，或点“手动指定…”";
-            for (int i = 0; i < 3; i++) {
+            for (int i = 0; i < config.Active().Length; i++) {
                 Seat s = config.Seats[i]; paths[i].Text = s.VmxPath == "" ? "（主机工位：使用本机 Windows）" : s.VmxPath;
                 if (s.VmxPath == "") { notes[i].Text = "屏幕：" + Native.MonitorLabel(s.Monitor); continue; }
                 var devices = VmPlan.DevicesFor(s); var parts = new List<string>();
@@ -240,12 +241,12 @@ namespace OpenSeatNative {
         void Require() { string problem = VmPlan.Check(config); if (problem != "") throw new InvalidOperationException(problem); }
         void WriteAll() {
             Require();
-            foreach (Seat s in config.Seats) if (s.VmxPath != "") VmPlan.WriteVmx(s.VmxPath, VmPlan.DevicesFor(s));
+            foreach (Seat s in config.Active()) if (s.VmxPath != "") VmPlan.WriteVmx(s.VmxPath, VmPlan.DevicesFor(s));
             UpdateNotes(); status.Text = "已写入 USB 直通配置（原文件备份为 .vmx.openseat-backup）。下一步点 ②。";
         }
         void RestoreAll() {
             int restored = 0;
-            foreach (Seat s in config.Seats) {
+            foreach (Seat s in config.Active()) {
                 if (s.VmxPath == "" || !File.Exists(s.VmxPath + ".openseat-backup")) continue;
                 if (VmPlan.IsRunning(s.VmxPath)) throw new InvalidOperationException(s.Name + " 的虚拟机正在运行，请先关机。");
                 File.Copy(s.VmxPath + ".openseat-backup", s.VmxPath, true); restored++;
@@ -256,12 +257,12 @@ namespace OpenSeatNative {
             Require();
             string exe = VmPlan.FindVmware(config.VmwarePath);
             if (exe == null) throw new InvalidOperationException("未找到 vmware.exe。请安装 VMware Workstation Pro，或手动指定。");
-            foreach (Seat s in config.Seats) {
+            foreach (Seat s in config.Active()) {
                 if (s.VmxPath == "") continue;
                 if (ScreenCapture.Find(s.Monitor) == null) throw new InvalidOperationException(s.Name + " 未分配在线显示器。");
                 if (!File.Exists(s.VmxPath)) throw new FileNotFoundException(s.Name + " 的虚拟机文件不存在。");
             }
-            foreach (Seat s in config.Seats) {
+            foreach (Seat s in config.Active()) {
                 if (s.VmxPath == "") continue;
                 string title = VmPlan.DisplayName(File.ReadAllText(s.VmxPath, Encoding.UTF8), Path.GetFileNameWithoutExtension(s.VmxPath));
                 if (!VmPlan.IsRunning(s.VmxPath)) Process.Start(new ProcessStartInfo(exe, VmPlan.LaunchArguments(s.VmxPath)) { UseShellExecute = false });
@@ -283,11 +284,11 @@ namespace OpenSeatNative {
             timer.Start();
         }
         void ClipToHost() {
-            foreach (Seat s in config.Seats) if (s.VmxPath == "") { Screen screen = ScreenCapture.Find(s.Monitor); if (screen != null) WindowTools.Clip(screen.Bounds); return; }
+            foreach (Seat s in config.Active()) if (s.VmxPath == "") { Screen screen = ScreenCapture.Find(s.Monitor); if (screen != null) WindowTools.Clip(screen.Bounds); return; }
         }
         void ApplyLock() {
             if (lockBox.Checked) {
-                Seat host = Array.Find(config.Seats, delegate(Seat s) { return s.VmxPath == ""; });
+                Seat host = Array.Find(config.Active(), delegate(Seat s) { return s.VmxPath == ""; });
                 if (host == null || ScreenCapture.Find(host.Monitor) == null) { lockBox.Checked = false; status.Text = "主机工位未分配在线显示器，无法锁定鼠标。"; return; }
                 ClipToHost(); lockTimer.Start(); status.Text = "主机鼠标已锁定在 " + host.Name + " 屏幕。按 Ctrl+Alt+F12 解除。";
             } else { lockTimer.Stop(); WindowTools.Unclip(); status.Text = "主机鼠标已解除锁定。"; }

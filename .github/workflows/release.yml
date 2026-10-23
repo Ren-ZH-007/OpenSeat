@@ -16,7 +16,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: v0.4.0-preview.1
+      RELEASE_TAG: v0.4.1-preview.1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +40,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
           & .\dist\Gaming.Tests.exe --self-test 2>&1 | Tee-Object -FilePath gaming-test-results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Gaming tests failed' }
-          if (-not (Select-String native-test-results.txt -Pattern '29 checks passed' -Quiet)) { throw 'Expected regression count missing' }
+          if (-not (Select-String native-test-results.txt -Pattern '32 checks passed' -Quiet)) { throw 'Expected regression count missing' }
           if (-not (Select-String gaming-test-results.txt -Pattern '31 gaming checks passed' -Quiet)) { throw 'Expected interactive runtime test count missing' }
       - name: Package both applications and checksums
         shell: pwsh
@@ -60,7 +60,7 @@ jobs:
             desktop_input_isolation = 'External engine required; not implemented by OpenSeat'
           } | ConvertTo-Json | Set-Content package\BUILD-INFO.json -Encoding utf8
           @'
-          OpenSeat 0.4.0-preview.1 / Windows x64
+          OpenSeat 0.4.1-preview.1 / Windows x64
           将两个 EXE 解压到同一目录，再运行 OpenSeat.exe。
           点击“原生工位游戏…”打开游戏启动器；也可直接运行 OpenSeat.Gaming.exe。
           游戏启动器在当前 Windows 会话运行，不创建独立桌面或分配键鼠。
@@ -68,10 +68,10 @@ jobs:
           LOL、三角洲、CF 是可配置启动项，不表示已通过游戏兼容性认证。
           无 OpenSeat 登录、激活或角色权限系统；Windows 系统权限仍然适用。
           .NET Framework 4.x required. EXEs are unsigned.
-          60 code checks passed. Physical hardware and real games NOT validated.
+          63 code checks passed. Physical hardware and real games NOT validated.
           '@ | Set-Content package\START-HERE.txt -Encoding utf8
-          Compress-Archive -Path package\* -DestinationPath OpenSeat-0.4.0-preview.1-win-x64.zip
-          $assets = @('dist\OpenSeat.exe','dist\OpenSeat.Gaming.exe','OpenSeat-0.4.0-preview.1-win-x64.zip')
+          Compress-Archive -Path package\* -DestinationPath OpenSeat-0.4.1-preview.1-win-x64.zip
+          $assets = @('dist\OpenSeat.exe','dist\OpenSeat.Gaming.exe','OpenSeat-0.4.1-preview.1-win-x64.zip')
           $lines = foreach ($asset in $assets) {
             $hash = Get-FileHash $asset -Algorithm SHA256
             "$($hash.Hash.ToLowerInvariant())  $(Split-Path $asset -Leaf)"
@@ -81,12 +81,18 @@ jobs:
         shell: pwsh
         run: |
           @'
-          ## OpenSeat 0.4.0 开发预览版
+          ## OpenSeat 0.4.1 开发预览版
           
-          下载 **OpenSeat-0.4.0-preview.1-win-x64.zip**，解压后将两个 EXE 保持在同一目录，运行 OpenSeat.exe。
+          下载 **OpenSeat-0.4.1-preview.1-win-x64.zip**，解压后将两个 EXE 保持在同一目录，运行 OpenSeat.exe。
           Windows 10 及以上 x64 为目标环境，需要 .NET Framework 4.x；本次编译及自动化测试环境为 Windows Server 2022。
           
-          ### 本次新增
+          ### 0.4.1 新增：双屏模式
+          - 主窗口工具栏“工位数量”可选 2 个（双屏）或 3 个（三屏）；双屏时隐藏工位 3，两个工位各占一半。
+          - 输入测试、屏幕监控、显示屏编号、诊断报告和 VMware 虚拟机工位都按实际工位数工作；双屏虚拟机方案为一个主机工位加一台虚拟机。
+          - 工位 3 的设置在双屏时保留，切回三屏恢复；旧配置文件默认按 3 个工位读取。
+          - 说明书新增第 15 节“双屏模式”；屏幕监控与虚拟机工位的 Windows 集成测试增加到 26 项。
+
+          ### 0.4.0 内容
           - 原生会话游戏启动器：配置 LOL、三角洲、CF 的官方启动器路径与参数。
           - 当前 Windows 会话内启动、重复启动拦截、进程跟踪和手动窗口定位。
           - 会话诊断、按用户保存配置、日志轮转。
@@ -95,16 +101,16 @@ jobs:
           - 包含 0.3.1 修复：无 VID/PID 的设备显示可读名称、窗口标题更新；屏幕监控与虚拟机工位另有 24 项 Windows 集成测试。
           
           ### 测试与功能边界
-          - 31 项启动器测试 + 29 项原有自检通过，包含真实子进程和窗口生命周期测试。
+          - 31 项启动器测试 + 32 项原有自检通过，包含真实子进程和窗口生命周期测试。
           - **这不是三人游戏完整实现。** 独立桌面、物理键鼠独占、图形资源分配仍依赖另行安装和配置的外部多工位引擎。
           - 不包含 ASTER 驱动或许可证，也没有自动集成其 SDK。
-          - 游戏名称只是可配置启动项；三屏硬件、真实游戏对局和反作弊兼容性均未验证。
+          - 游戏名称只是可配置启动项；双屏/三屏硬件、真实游戏对局和反作弊兼容性均未验证。
           - 无新增 OpenSeat 账号、激活或角色权限体系。
           - 保留已有输入测试、屏幕监控与 VMware 配置功能；EXE 未签名。
           
           附件：完整 ZIP、两个独立 EXE、SHA256SUMS.txt。推荐下载 ZIP。
           '@ | Set-Content release-notes.md -Encoding utf8
-          gh release create $env:RELEASE_TAG dist/OpenSeat.exe dist/OpenSeat.Gaming.exe OpenSeat-0.4.0-preview.1-win-x64.zip SHA256SUMS.txt --target $env:GITHUB_SHA --title 'OpenSeat 0.4.0 — 原生会话游戏启动器（开发预览）' --notes-file release-notes.md --draft --prerelease --latest=false
+          gh release create $env:RELEASE_TAG dist/OpenSeat.exe dist/OpenSeat.Gaming.exe OpenSeat-0.4.1-preview.1-win-x64.zip SHA256SUMS.txt --target $env:GITHUB_SHA --title 'OpenSeat 0.4.1 — 双屏模式 + 原生会话游戏启动器（开发预览）' --notes-file release-notes.md --draft --prerelease --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Draft creation or upload failed' }
           $release = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0 -or $release.assets.Count -ne 4) { throw 'Release asset verification failed' }

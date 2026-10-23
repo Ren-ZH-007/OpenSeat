@@ -142,7 +142,7 @@ namespace OpenSeatGaming {
                 try { config = GamingConfig.Load(configPath); }
                 catch (Exception ex) { corrupt = true; loadError = "配置读取失败，原文件已保留。请先修复或备份移走文件，再重新打开：" + ex.Message; }
             }
-            Text = "OpenSeat 0.4.0-preview.1 · 原生工位游戏启动器（外部引擎模式）";
+            Text = "OpenSeat 0.4.1-preview.1 · 原生工位游戏启动器（外部引擎模式）";
             Font = new Font("Microsoft YaHei UI", 10); Size = new Size(940, 820); MinimumSize = new Size(800, 650);
             AutoScaleMode = AutoScaleMode.Dpi; StartPosition = FormStartPosition.CenterScreen;
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, ColumnCount = 1, Padding = new Padding(16) };

@@ -161,6 +161,18 @@ namespace OpenSeatNative {
                 w.Close(); w.Dispose();
                 return Expect(hadImage && msg == "该工位未分配在线显示器", "有显示器时显示画面；取消分配后改为提示“" + msg + "”", "有画面=" + hadImage + "，提示=“" + msg + "”");
             });
+            Check(A, "切换到双屏（2 个工位）", delegate {
+                Call(main, "ChangeSeatCount", 2); Pump(800);
+                var cardPanels = (FlowLayoutPanel[])Get(main, "cardPanels");
+                string run = ((Button)Get(main, "runButton")).Text, status = ((Label)Get(main, "status")).Text;
+                bool hidden = !tiles[2].Visible && !cardPanels[2].Visible && tiles[1].Visible && cardPanels[1].Visible;
+                bool wide = tiles[0].Width > primary.WorkingArea.Width / 3;
+                Shot("1b-主窗口-双屏");
+                Call(main, "ChangeSeatCount", 3); Pump(600);
+                bool back = tiles[2].Visible && cardPanels[2].Visible && ((Settings)Get(main, "config")).SeatCount == 3;
+                return Expect(hidden && wide && run.Contains("双屏") && back,
+                    "工位 3 的监控格和卡片隐藏，前两格加宽到半屏（" + tiles[0].Width + " px）；按钮“" + run + "”；切回三屏后恢复", "隐藏=" + hidden + "，加宽=" + wide + "，按钮=“" + run + "”，恢复=" + back);
+            });
             Set(main, "dirty", false); main.Close(); main.Dispose(); Pump(300);
         }
 
@@ -295,6 +307,15 @@ namespace OpenSeatNative {
                 var w = new VmSeatsWindow(config, delegate { }); w.Show(); Pump(500);
                 Call(w, "RestoreAll"); string status = ((Label)Get(w, "status")).Text; w.Close();
                 return Expect(File.ReadAllText(vm2) == original2 && status.Contains("2"), "两台虚拟机的 .vmx 恢复为原始内容；状态栏：“" + status + "”", "还原后内容不一致；状态栏：“" + status + "”");
+            });
+            Check(A, "双屏：一个主机工位 + 一台虚拟机", delegate {
+                config.SeatCount = 2; string ok = VmPlan.Check(config);
+                var w = new VmSeatsWindow(config, delegate { }); w.Show(); Pump(600);
+                string status = ((Label)Get(w, "status")).Text, title = w.Text;
+                bool thirdRowHidden = Get(w, "paths") is TextBox[] && ((TextBox[])Get(w, "paths"))[2] == null;
+                w.Close(); config.SeatCount = 3;
+                return Expect(ok == "" && status.StartsWith("方案检查通过") && title.Contains("双屏") && thirdRowHidden,
+                    "方案检查通过，窗口标题“" + title + "”，只显示两个工位", "检查=“" + ok + "”，状态=“" + status + "”，第三行隐藏=" + thirdRowHidden);
             });
             Check(A, "查找 vmware.exe", delegate {
                 string configured = VmPlan.FindVmware(fakeVmware), auto = VmPlan.FindVmware("");

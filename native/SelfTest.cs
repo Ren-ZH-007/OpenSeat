@@ -75,6 +75,17 @@ namespace OpenSeatNative {
                 plan.Seats[2].Mouse=@"\\?\HID#VID_1111&PID_0001#other-port"; bool sameModel=VmPlan.Check(plan)!="";
                 plan.Seats[2].Mouse=@"\\?\HID#VID_3333&PID_0003#c"; plan.Seats[1].VmxPath=""; bool twoHosts=VmPlan.Check(plan)!="";
                 Assert(sameModel && twoHosts,"vm plan rejects same model and two hosts");
+                var dual=new Settings(); dual.SeatCount=2;
+                dual.Seats[0].Monitor="screen-A"; dual.Seats[1].Monitor="screen-B"; dual.Seats[2].Monitor="screen-A"; dual.Seats[2].Mouse="m"; dual.Seats[0].Mouse="m"; dual.Seats[2].Name="";
+                dual.Validate(); bool dualOk=dual.Active().Length==2 && dual.Layout()=="双屏";
+                dual.SeatCount=3; bool threeRejects=false; try { dual.Validate(); } catch(InvalidDataException) { threeRejects=true; }
+                Assert(dualOk && threeRejects,"dual seat ignores inactive seat 3");
+                dual.SeatCount=4; Reject(dual.Validate,"seat count outside 2..3 rejected");
+                var dualPlan=new Settings(); dualPlan.SeatCount=2;
+                dualPlan.Seats[0].Mouse=@"\\?\HID#VID_1111&PID_0001#a"; dualPlan.Seats[1].Mouse=@"\\?\HID#VID_2222&PID_0002#b"; dualPlan.Seats[1].VmxPath=@"C:\vm\b.vmx";
+                dualPlan.Seats[2].VmxPath=@"C:\vm\b.vmx"; dualPlan.Seats[2].Mouse=@"\\?\HID#VID_1111&PID_0001#c";
+                string dualFile=Path.Combine(directory,"dual.xml"); dualPlan.Save(dualFile);
+                Assert(VmPlan.Check(dualPlan)=="" && Settings.Load(dualFile).SeatCount==2 && new Settings().SeatCount==3,"dual seat vm plan and round trip");
                 Notify(count+" checks passed.\nHardware routing and desktop isolation are NOT validated.","OpenSeat self-test"); return 0;
             } catch(Exception ex) { Notify(ex.ToString(),"OpenSeat self-test FAILED"); return 1; }
             finally { if(Directory.Exists(directory)) Directory.Delete(directory,true); }

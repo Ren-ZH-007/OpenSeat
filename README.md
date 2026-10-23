@@ -2,11 +2,13 @@
 
 目标环境：Windows 10 及以上 x64，.NET Framework 4.x。
 
+**工位数量**：支持双屏 2 工位或三屏 3 工位，在主窗口工具栏“工位数量”中切换（显示器、鼠标数量与工位数相同；旧配置默认 3 工位）。详见[使用说明书](docs/使用说明书.md)第 15 节。
+
 **当前不提供独立桌面或物理键鼠隔离。** 三人分别操作游戏需要另行安装、授权并配置外部多工位引擎。OpenSeat 仅在已经存在的 Windows 用户会话内启动和管理游戏；打开外部控制台不等于完成引擎接入。
 
 ## 下载
 
-[完整 Windows ZIP](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.4.0-preview.1/OpenSeat-0.4.0-preview.1-win-x64.zip) · [发布页面](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.4.0-preview.1)
+[完整 Windows ZIP](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.4.1-preview.1/OpenSeat-0.4.1-preview.1-win-x64.zip) · [发布页面](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.4.1-preview.1)
 
 解压后保留 OpenSeat.exe 和 OpenSeat.Gaming.exe 在同一目录，运行 OpenSeat.exe，点击“原生工位游戏…”。也可以在每个已经建立的独立用户会话中直接运行 OpenSeat.Gaming.exe。
 
