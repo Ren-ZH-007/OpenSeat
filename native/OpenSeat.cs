@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -224,10 +226,77 @@ namespace OpenSeatNative {
             KeyPreview=true; KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Escape) Close(); };
         }
     }
+    // 屏幕监控：只读截取工位显示器画面并缩放显示，不向工位发送任何输入。
+    public static class ScreenCapture {
+        public static Rectangle Fit(Size source, Size target) {
+            if (source.Width<=0 || source.Height<=0 || target.Width<=0 || target.Height<=0) return Rectangle.Empty;
+            double scale=Math.Min((double)target.Width/source.Width,(double)target.Height/source.Height);
+            int w=Math.Max(1,(int)(source.Width*scale)), h=Math.Max(1,(int)(source.Height*scale));
+            return new Rectangle((target.Width-w)/2,(target.Height-h)/2,w,h);
+        }
+        public static Bitmap Grab(Rectangle bounds, Size target) {
+            Rectangle fit=Fit(bounds.Size,target);
+            if (fit.IsEmpty) return null;
+            using (var full=new Bitmap(bounds.Width,bounds.Height,PixelFormat.Format32bppRgb)) {
+                using (var g=Graphics.FromImage(full)) g.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size,CopyPixelOperation.SourceCopy);
+                var small=new Bitmap(fit.Width,fit.Height,PixelFormat.Format32bppRgb);
+                using (var g=Graphics.FromImage(small)) { g.InterpolationMode=InterpolationMode.Bilinear; g.DrawImage(full,0,0,fit.Width,fit.Height); }
+                return small;
+            }
+        }
+        public static Screen Find(string deviceName) {
+            if (String.IsNullOrEmpty(deviceName)) return null;
+            foreach (Screen s in Screen.AllScreens) if (String.Equals(s.DeviceName,deviceName,StringComparison.OrdinalIgnoreCase)) return s;
+            return null;
+        }
+    }
+    public class MonitorTile : Control {
+        Bitmap image; string message="";
+        public string Caption="";
+        public MonitorTile() { DoubleBuffered=true; BackColor=Color.FromArgb(17,27,45); ForeColor=Color.White; Cursor=Cursors.Hand; }
+        public void SetImage(Bitmap next) { Bitmap old=image; image=next; message=""; if(old!=null) old.Dispose(); Invalidate(); }
+        public void ShowMessage(string text) { if(image!=null) { image.Dispose(); image=null; } message=text; Invalidate(); }
+        protected override void OnPaint(PaintEventArgs e) {
+            base.OnPaint(e);
+            if (image!=null) e.Graphics.DrawImage(image,ScreenCapture.Fit(image.Size,ClientSize));
+            else using (var f=new StringFormat { Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center }) e.Graphics.DrawString(message,Font,Brushes.LightSteelBlue,ClientRectangle,f);
+            if (Caption!="") {
+                var size=e.Graphics.MeasureString(Caption,Font);
+                using (var shade=new SolidBrush(Color.FromArgb(170,0,0,0))) e.Graphics.FillRectangle(shade,0,0,size.Width+12,size.Height+6);
+                e.Graphics.DrawString(Caption,Font,Brushes.White,6,3);
+            }
+        }
+        protected override void Dispose(bool disposing) { if(disposing && image!=null) { image.Dispose(); image=null; } base.Dispose(disposing); }
+    }
+    public class MonitorWindow : Form {
+        readonly MonitorTile view=new MonitorTile();
+        readonly Timer timer=new Timer();
+        readonly Func<string> monitor;
+        public MonitorWindow(string seatName, Func<string> monitorName, Rectangle near) {
+            monitor=monitorName;
+            Text=seatName+" · 屏幕监控（只读）"; StartPosition=FormStartPosition.Manual; MinimumSize=new Size(320,220);
+            Bounds=new Rectangle(near.X+(near.Width-960)/2,near.Y+(near.Height-600)/2,960,600);
+            view.Dock=DockStyle.Fill; view.Cursor=Cursors.Default; view.Caption=seatName; Controls.Add(view);
+            KeyPreview=true; KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Escape) Close(); };
+            timer.Interval=200; timer.Tick+=delegate { GrabFrame(); }; timer.Start();
+            Shown+=delegate { GrabFrame(); };
+        }
+        void GrabFrame() {
+            if (WindowState==FormWindowState.Minimized) return;
+            Screen s=ScreenCapture.Find(monitor());
+            if (s==null) { view.ShowMessage("该工位未分配在线显示器"); return; }
+            view.Caption=Text.Replace(" · 屏幕监控（只读）","")+" · "+Native.MonitorLabel(s.DeviceName);
+            try { view.SetImage(ScreenCapture.Grab(s.Bounds,view.ClientSize)); }
+            catch (Exception) { view.ShowMessage("暂时无法捕获画面（可能处于锁屏或 UAC 安全桌面）"); }
+        }
+        protected override void Dispose(bool disposing) { if(disposing) timer.Dispose(); base.Dispose(disposing); }
+    }
     public class MainWindow : Form {
         Settings config=new Settings();
         string configPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OpenSeat","three-seat.xml");
         ComboBox[] screens=new ComboBox[3]; Label[] bindings=new Label[3]; TextBox[] nameBoxes=new TextBox[3];
+        MonitorTile[] tiles=new MonitorTile[3]; MonitorWindow[] monitorWindows=new MonitorWindow[3];
+        CheckBox monitorToggle; Timer monitorClock=new Timer();
         List<TestWindow> windows=new List<TestWindow>();
         Dictionary<IntPtr,string> names=new Dictionary<IntPtr,string>();
         HashSet<string> known=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -236,10 +305,10 @@ namespace OpenSeatNative {
         bool running=false, dirty=false, refreshing=false;
         int bindSeat=-1; uint bindKind; DateTime armAt, expires;
         public MainWindow() {
-            Text="OpenSeat "+Program.AppVersion+" · 三工位技术验证版"; Size=new Size(1080,850); MinimumSize=new Size(940,780);
+            Text="OpenSeat "+Program.AppVersion+" · 三工位技术验证版"; Size=new Size(1080,1030); MinimumSize=new Size(940,960);
             Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(242,246,251);
-            var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(20),ColumnCount=1,RowCount=6 };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,78)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
+            var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(20),ColumnCount=1,RowCount=7 };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,78)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,56)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,180));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute,320)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,54));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent,100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
             Controls.Add(layout);
@@ -248,7 +317,18 @@ namespace OpenSeatNative {
             var toolbar=new FlowLayoutPanel { Dock=DockStyle.Fill };
             toolbar.Controls.Add(Button("刷新设备 / 屏幕", RefreshInventory)); toolbar.Controls.Add(Button("显示屏编号", Identify));
             toolbar.Controls.Add(Button("保存配置", Save)); toolbar.Controls.Add(Button("导入配置", Import)); toolbar.Controls.Add(Button("导出配置", Export));
+            monitorToggle=new CheckBox { Text="屏幕监控",Checked=true,AutoSize=true,Margin=new Padding(12,9,3,3) };
+            monitorToggle.CheckedChanged+=delegate { if(monitorToggle.Checked) RefreshMonitors(); else foreach(MonitorTile tile in tiles) tile.ShowMessage("屏幕监控已暂停"); };
+            toolbar.Controls.Add(monitorToggle);
             layout.Controls.Add(toolbar,0,1);
+            var monitorRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3 };
+            for(int i=0;i<3;i++) {
+                monitorRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,33.333f)); int seat=i;
+                tiles[i]=new MonitorTile { Dock=DockStyle.Fill,Margin=new Padding(4) };
+                tiles[i].Click+=delegate { OpenMonitor(seat); };
+                monitorRow.Controls.Add(tiles[i],i,0);
+            }
+            layout.Controls.Add(monitorRow,0,2);
             var cards=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3 };
             for(int i=0;i<3;i++) {
                 cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,33.333f)); int seat=i;
@@ -266,19 +346,37 @@ namespace OpenSeatNative {
                 card.Controls.Add(Button("清除此工位绑定",delegate { Stop(); config.Seats[seat].Mouse=""; config.Seats[seat].Keyboard=""; dirty=true; UpdateLabels(); status.Text="已清除"+config.Seats[seat].Name+"的键鼠绑定。"; }));
                 bindings[i]=new Label { Width=285,Height=75 }; card.Controls.Add(bindings[i]); cards.Controls.Add(card,i,0);
             }
-            layout.Controls.Add(cards,0,2);
+            layout.Controls.Add(cards,0,3);
             var controls=new FlowLayoutPanel { Dock=DockStyle.Fill };
             runButton=Button("启动三屏输入测试", Toggle); controls.Controls.Add(runButton);
             controls.Controls.Add(Button("停止 / 取消绑定",delegate { Stop(); status.Text="已停止。"; })); controls.Controls.Add(Button("导出诊断报告",Report));
-            layout.Controls.Add(controls,0,3);
+            layout.Controls.Add(controls,0,4);
             inventory.Multiline=true; inventory.ReadOnly=true; inventory.ScrollBars=ScrollBars.Both; inventory.WordWrap=false; inventory.Dock=DockStyle.Fill;
-            layout.Controls.Add(inventory,0,4); status.Dock=DockStyle.Fill; status.Text="就绪。需要三台扩展模式显示器、三个可独立识别的鼠标；键盘可选。"; layout.Controls.Add(status,0,5);
+            layout.Controls.Add(inventory,0,5); status.Dock=DockStyle.Fill; status.Text="就绪。需要三台扩展模式显示器、三个可独立识别的鼠标；键盘可选。"; layout.Controls.Add(status,0,6);
             Shown+=delegate { try { if(File.Exists(configPath)) config=Settings.Load(configPath); } catch(Exception ex) { Error(ex); } RefreshInventory(); };
             FormClosing+=delegate(object sender,FormClosingEventArgs e) { if(!ConfirmDiscard()) { e.Cancel=true; return; } Stop(); };
+            monitorClock.Interval=500; monitorClock.Tick+=delegate { RefreshMonitors(); }; monitorClock.Start();
             clock.Interval=33; clock.Tick+=delegate {
                 if(bindSeat>=0 && DateTime.UtcNow>expires) { Stop(); status.Text="绑定超时，请重试。"; }
                 foreach(TestWindow w in windows) if(!w.IsDisposed) w.Canvas.Invalidate();
             }; clock.Start();
+        }
+        void RefreshMonitors() {
+            if(monitorToggle==null || !monitorToggle.Checked || WindowState==FormWindowState.Minimized) return;
+            for(int i=0;i<3;i++) {
+                MonitorTile tile=tiles[i]; Seat seat=config.Seats[i];
+                Screen s=ScreenCapture.Find(seat.Monitor);
+                tile.Caption=seat.Name+(s==null ? "" : " · "+s.DeviceName.Replace(@"\\.\","")+" · 点击放大");
+                if(s==null) { tile.ShowMessage("未分配在线显示器"); continue; }
+                try { tile.SetImage(ScreenCapture.Grab(s.Bounds,tile.ClientSize)); }
+                catch(Exception) { tile.ShowMessage("暂时无法捕获画面"); }
+            }
+        }
+        void OpenMonitor(int seat) {
+            MonitorWindow existing=monitorWindows[seat];
+            if(existing!=null && !existing.IsDisposed) { if(existing.WindowState==FormWindowState.Minimized) existing.WindowState=FormWindowState.Normal; existing.Activate(); return; }
+            var window=new MonitorWindow(config.Seats[seat].Name,delegate { return config.Seats[seat].Monitor; },Screen.FromControl(this).WorkingArea);
+            monitorWindows[seat]=window; window.Show(this);
         }
         Button Button(string text, Action action) { var b=new Button { Text=text,AutoSize=true,Height=34,Margin=new Padding(3) }; b.Click+=delegate { try { action(); } catch(Exception ex) { Error(ex); } }; return b; }
         void Error(Exception ex) { MessageBox.Show(this,ex.Message,"OpenSeat",MessageBoxButtons.OK,MessageBoxIcon.Error); }
@@ -407,10 +505,10 @@ namespace OpenSeatNative {
         void Import() { if(!ConfirmDiscard()) return; using(var dialog=new OpenFileDialog { Filter="OpenSeat XML|*.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { Settings candidate=Settings.Load(dialog.FileName); Stop(); config=candidate; dirty=true; RefreshInventory(); status.Text="已导入，尚未保存；确认无误后请点“保存配置”。"; } }
         void Export() { using(var dialog=new SaveFileDialog { Filter="OpenSeat XML|*.xml",FileName="three-seat.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { config.Save(dialog.FileName); status.Text="已导出："+dialog.FileName; } }
         void Report() { using(var dialog=new SaveFileDialog { Filter="文本报告|*.txt",FileName="OpenSeat-diagnostics.txt" }) if(dialog.ShowDialog(this)==DialogResult.OK) { File.WriteAllText(dialog.FileName,Describe(),Encoding.UTF8); status.Text="诊断报告已导出（含设备实例 ID，不含输入内容）。"; } }
-        protected override void Dispose(bool disposing) { if(disposing) clock.Dispose(); base.Dispose(disposing); }
+        protected override void Dispose(bool disposing) { if(disposing) { clock.Dispose(); monitorClock.Dispose(); } base.Dispose(disposing); }
     }
     public static class Program {
-        public const string AppVersion="0.2.1";
+        public const string AppVersion="0.2.2";
         [STAThread] public static int Main(string[] args) {
             if(args.Length>0 && args[0]=="--self-test") return SelfTest.Run();
             try { Native.SetProcessDPIAware(); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new MainWindow()); return 0; }

@@ -29,7 +29,7 @@ jobs:
         run: |
           & .\dist\OpenSeat.Tests.exe --self-test 2>&1 | Tee-Object -FilePath native-test-results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Native self-tests failed' }
-          if (-not (Select-String -Path native-test-results.txt -Pattern '20 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
+          if (-not (Select-String -Path native-test-results.txt -Pattern '22 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
       - uses: actions/upload-artifact@v4
         with:
           name: OpenSeat-win-x64-ci

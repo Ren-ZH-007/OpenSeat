@@ -57,6 +57,8 @@ namespace OpenSeatNative {
                 Assert(Native.DeviceLabel(@"\\?\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&0002046d_PID&b023&Col01#8&1b2c&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91e6bf6}")=="VID 046D · PID B023","Bluetooth device label");
                 var named=new Settings(); named.Seats[0].Name=new string('x',Settings.MaxNameLength+1);
                 Reject(named.Validate,"overlong seat name rejected");
+                Assert(ScreenCapture.Fit(new System.Drawing.Size(1920,1080),new System.Drawing.Size(320,180))==new System.Drawing.Rectangle(0,0,320,180),"monitor thumbnail fit landscape");
+                Assert(ScreenCapture.Fit(new System.Drawing.Size(1080,1920),new System.Drawing.Size(320,180))==new System.Drawing.Rectangle(109,0,101,180) && ScreenCapture.Fit(new System.Drawing.Size(0,0),new System.Drawing.Size(320,180)).IsEmpty,"monitor thumbnail fit portrait and empty");
                 Notify(count+" checks passed.\nHardware routing and desktop isolation are NOT validated.","OpenSeat self-test"); return 0;
             } catch(Exception ex) { Notify(ex.ToString(),"OpenSeat self-test FAILED"); return 1; }
             finally { if(Directory.Exists(directory)) Directory.Delete(directory,true); }
