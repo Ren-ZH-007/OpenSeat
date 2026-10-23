@@ -529,7 +529,7 @@ namespace OpenSeatNative {
         protected override void Dispose(bool disposing) { if(disposing) { clock.Dispose(); monitorClock.Dispose(); } base.Dispose(disposing); }
     }
     public static class Program {
-        public const string AppVersion="0.3.0";
+        public const string AppVersion="0.4.0-preview.1";
         [STAThread] public static int Main(string[] args) {
             if(args.Length>0 && args[0]=="--self-test") return SelfTest.Run();
             try { Native.SetProcessDPIAware(); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new MainWindow()); return 0; }
