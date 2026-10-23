@@ -1,0 +1,49 @@
+﻿using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows.Forms;
+namespace OpenSeatNative {
+    public static class SelfTest {
+        static int count;
+        static void Assert(bool condition,string name) { if(!condition) throw new Exception(name); count++; }
+        static void Reject(Action action,string name) { bool rejected=false; try { action(); } catch(InvalidDataException) { rejected=true; } Assert(rejected,name); }
+        static void Packet(uint kind,Action<IntPtr,int> test) {
+            int head=Marshal.SizeOf(typeof(Native.Header)), size=head+(kind==0?24:16);
+            IntPtr p=Marshal.AllocHGlobal(size);
+            try { for(int i=0;i<size;i++) Marshal.WriteByte(p,i,0); Marshal.StructureToPtr(new Native.Header { Type=kind,Size=(uint)size,Device=new IntPtr(1234) },p,false); test(p,head); }
+            finally { Marshal.FreeHGlobal(p); }
+        }
+        public static int Run() {
+            string directory=Path.Combine(Path.GetTempPath(),"OpenSeat-test-"+Guid.NewGuid().ToString("N"));
+            try {
+                var settings=new Settings(); settings.Validate(); Assert(settings.Seats.Length==3,"three seats");
+                settings.Seats[0].Mouse="device-A"; settings.Seats[1].Mouse="DEVICE-a";
+                Reject(settings.Validate,"case insensitive duplicate mouse"); settings.Seats[1].Mouse="";
+                settings.Seats[0].Monitor="screen-A"; settings.Seats[1].Monitor="screen-A";
+                Reject(settings.Validate,"duplicate monitor"); settings.Seats[1].Monitor="";
+                settings.Seats[2].Keyboard=null; Reject(settings.Validate,"null device field"); settings.Seats[2].Keyboard="";
+                string file=Path.Combine(directory,"config.xml"); settings.Save(file);
+                Assert(Settings.Load(file).Seats[0].Mouse=="device-A","round trip");
+                settings.Seats[1].Mouse="device-B"; settings.Save(file);
+                Assert(Settings.Load(file).Seats[1].Mouse=="device-B","atomic replacement");
+                settings.Seats[1].Mouse="device-A"; Reject(delegate { settings.Save(file); },"bad save rejected");
+                Assert(Settings.Load(file).Seats[1].Mouse=="device-B","bad save preserves file");
+                Packet(0,delegate(IntPtr p,int h) {
+                    Marshal.WriteInt16(p,h+4,1); Marshal.WriteInt32(p,h+12,-17); Marshal.WriteInt32(p,h+16,29);
+                    InputEvent e=Native.Decode(p,(uint)(h+24));
+                    Assert(e.X==-17 && e.Y==29 && e.Buttons==1 && !e.Absolute && e.Device.ToInt64()==1234,"mouse signed offsets and device handle");
+                    Marshal.WriteInt16(p,h,1); Assert(Native.Decode(p,(uint)(h+24)).Absolute,"absolute mouse flag");
+                    Reject(delegate { Native.Decode(p,(uint)(h+4)); },"truncated mouse rejected");
+                });
+                Packet(1,delegate(IntPtr p,int h) {
+                    Marshal.WriteInt16(p,h+6,65); Assert(Native.Decode(p,(uint)(h+16)).KeyDown,"key make");
+                    Marshal.WriteInt16(p,h+2,1); Assert(!Native.Decode(p,(uint)(h+16)).KeyDown,"key break");
+                    Marshal.WriteInt16(p,h+2,0); Marshal.WriteInt16(p,h,255); Assert(!Native.Decode(p,(uint)(h+16)).KeyDown,"keyboard overrun ignored");
+                });
+                MessageBox.Show(count+" checks passed.\nHardware routing and desktop isolation are NOT validated.","OpenSeat self-test"); return 0;
+            } catch(Exception ex) { MessageBox.Show(ex.ToString(),"OpenSeat self-test FAILED"); return 1; }
+            finally { if(Directory.Exists(directory)) Directory.Delete(directory,true); }
+        }
+    }
+}
