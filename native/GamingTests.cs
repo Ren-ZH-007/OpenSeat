@@ -87,6 +87,26 @@ namespace OpenSeatGaming {
                         }
                         typeof(GamingWindow).GetMethod("RefreshProcesses", flags).Invoke(window, null);
                         Assert(handles[0] == null && labels[0].Text.Contains("游戏状态未知"), "exited launcher is not reported as stopped game");
+
+                        if (interactive) {
+                            probe.Executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
+                            probe.Arguments = "-NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 30\"";
+                            executables[0].Text = probe.Executable; argsBoxes[0].Text = probe.Arguments;
+                            try {
+                                typeof(GamingWindow).GetMethod("StartGame", flags).Invoke(window, new object[] { 0 });
+                                Assert(handles[0] != null && !handles[0].WaitForExit(100), "live launch retained for duplicate check");
+                                bool rejected = false;
+                                try { typeof(GamingWindow).GetMethod("StartGame", flags).Invoke(window, new object[] { 0 }); }
+                                catch (TargetInvocationException ex) { rejected = ex.InnerException is InvalidOperationException; }
+                                Assert(rejected, "duplicate start rejected while launched process is alive");
+                            } finally {
+                                if (handles[0] != null) {
+                                    if (!handles[0].HasExited) { handles[0].Kill(); handles[0].WaitForExit(10000); }
+                                    handles[0].Dispose(); handles[0] = null;
+                                }
+                            }
+                        }
+
                         typeof(GamingWindow).GetMethod("RefreshInventory", flags).Invoke(window, null);
                         Assert(window.IsHandleCreated, "inventory refresh keeps window usable");
                         typeof(GamingWindow).GetField("dirty", flags).SetValue(window, false); // discard test-only edits; never write user config
