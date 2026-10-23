@@ -185,7 +185,12 @@ namespace OpenSeatNative {
         public static string DeviceLabel(string id) {
             if (String.IsNullOrEmpty(id)) return "";
             Match m=Regex.Match(id, @"VID[_&]([0-9A-Fa-f]{4,8}).*?PID[_&]([0-9A-Fa-f]{4})", RegexOptions.IgnoreCase);
-            if (!m.Success) return id.Length > 36 ? "…" + id.Substring(id.Length-36) : id;
+            if (!m.Success) {
+                // 无 VID/PID（如虚拟机或远程桌面的输入设备）：显示总线类型和实例号，而不是所有 HID 设备都相同的接口 GUID。
+                string[] parts=id.Split('#');
+                if (parts.Length >= 3 && parts[2] != "") return parts[0].Substring(parts[0].LastIndexOf('\\')+1).ToUpperInvariant() + " 设备 · " + parts[2];
+                return id.Length > 36 ? "…" + id.Substring(id.Length-36) : id;
+            }
             string vid=m.Groups[1].Value; vid=vid.Substring(vid.Length-4);
             string label="VID " + vid.ToUpperInvariant() + " · PID " + m.Groups[2].Value.ToUpperInvariant();
             Match mi=Regex.Match(id, @"MI_([0-9A-Fa-f]{2})", RegexOptions.IgnoreCase);
@@ -310,7 +315,7 @@ namespace OpenSeatNative {
         bool running=false, dirty=false, refreshing=false;
         int bindSeat=-1; uint bindKind; DateTime armAt, expires;
         public MainWindow() {
-            Text="OpenSeat "+Program.AppVersion+" · 三工位技术验证版"; Size=new Size(1080,1030); MinimumSize=new Size(940,960);
+            Text="OpenSeat "+Program.AppVersion+" · 三工位预览版"; Size=new Size(1080,1030); MinimumSize=new Size(940,960);
             Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(242,246,251);
             var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(20),ColumnCount=1,RowCount=7 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute,78)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,56)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,180));
