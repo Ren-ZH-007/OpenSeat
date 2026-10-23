@@ -45,6 +45,8 @@ namespace OpenSeatGaming {
 
                 // Real Windows process creation: test the same launch path with a harmless child.
                 if (Environment.OSVersion.Platform == PlatformID.Win32NT) {
+                    Reject(delegate { GamingConfig.ValidatePath(@"C:game.exe"); }, "drive-relative executable rejected");
+                    Reject(delegate { GamingConfig.ValidatePath(@"\game.exe"); }, "current-drive executable rejected");
                     var probe = new GameProfile { Name = "test child", Executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"), Arguments = "/d /c exit 23" };
                     using (Process child = Process.Start(Launcher.Prepare(probe))) {
                         Assert(child != null && child.WaitForExit(10000), "actual child exits within timeout");
