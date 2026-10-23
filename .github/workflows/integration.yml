@@ -1,0 +1,50 @@
+name: Integration test (screen monitoring + VM seats)
+on:
+  push:
+    branches: [test/integration]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  integration:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Screen resolution 1920x1080
+        shell: pwsh
+        run: try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { Write-Output "unchanged: $_" }
+      - name: Build app, integration test and fake vmware.exe
+        shell: pwsh
+        run: |
+          cmd /c build-native.cmd
+          if ($LASTEXITCODE -ne 0) { throw 'app build failed' }
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          $refs = '/reference:System.dll','/reference:System.Core.dll','/reference:System.Drawing.dll','/reference:System.Windows.Forms.dll','/reference:System.Xml.dll'
+          & $csc /nologo /target:exe /platform:x64 /main:OpenSeatNative.IntegrationTest /out:dist\OpenSeat.Integration.exe @refs native\OpenSeat.cs native\VmSeats.cs native\SelfTest.cs native\test\IntegrationTest.cs
+          if ($LASTEXITCODE -ne 0) { throw 'integration build failed' }
+          New-Item -ItemType Directory -Force dist\fake | Out-Null
+          & $csc /nologo /target:winexe /platform:x64 /out:dist\fake\vmware.exe @refs native\test\FakeVmware.cs
+          if ($LASTEXITCODE -ne 0) { throw 'fake vmware build failed' }
+      - name: Run integration tests
+        id: run
+        shell: pwsh
+        run: |
+          & .\dist\OpenSeat.Integration.exe integration-results dist\fake\vmware.exe 2>&1 | Tee-Object -FilePath integration-results\console.txt
+          $code = $LASTEXITCODE
+          Get-Content integration-results\console.txt | Where-Object { $_ -like 'FAIL *' } | Select-Object -First 10 | ForEach-Object { Write-Output "::error::$_" }
+          Get-Content integration-results\console.txt | Select-Object -Last 1 | ForEach-Object { Write-Output "::notice::$_" }
+          exit $code
+      - name: Publish results to branch test/integration-results
+        if: always()
+        shell: pwsh
+        run: |
+          Set-Location integration-results
+          git init -q; git checkout -q -b results
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add .
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -qm "integration results for $env:GITHUB_SHA [skip ci]"
+          git push -f -q "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" HEAD:refs/heads/test/integration-results
