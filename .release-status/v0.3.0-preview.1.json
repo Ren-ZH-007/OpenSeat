@@ -1,0 +1,12 @@
+{
+  "build": "success",
+  "source_sha": "84e9ee70d0bcd1cd22e10986f799d137a9231be9",
+  "run_url": "https://github.com/Ren-ZH-007/OpenSeat/actions/runs/39906761842",
+  "release_url": "https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.3.0-preview.1",
+  "timestamp_utc": "2026-10-23T05:37:39.1951723Z",
+  "package": "success",
+  "run_id": "39906761842",
+  "tests": "success",
+  "publish": "success",
+  "tag": "v0.3.0-preview.1"
+}
