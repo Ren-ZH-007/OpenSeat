@@ -42,6 +42,13 @@ namespace OpenSeatGaming {
         }
         public static void ValidatePath(string path) {
             if (path == "") return;
+            // IsPathRooted also accepts C:game.exe and \\game.exe on Windows.
+            // Those depend on a current directory/drive and are not absolute paths.
+            if (path == null) throw new InvalidDataException("EXE 路径为空。");
+            string root = Path.GetPathRoot(path);
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT &&
+                (root == null || root.Length <= 1 || root.EndsWith(":", StringComparison.Ordinal)))
+                throw new InvalidDataException("请选择包含盘符和目录的完整 EXE 路径，或完整 UNC 路径。");
             if (path.Length > 240 || path.IndexOfAny(new char[] {'\0', '\r', '\n', '"'}) >= 0 ||
                 !Path.IsPathRooted(path) || !String.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("请选择完整的 EXE 文件路径，不支持命令、脚本或网址。");
