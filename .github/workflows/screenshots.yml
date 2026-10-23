@@ -44,10 +44,16 @@ jobs:
           $main = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $p.Id)))
           if ($main) { $main.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).SetWindowVisualState('Maximized') }
           Start-Sleep -Seconds 2
+          Add-Type -Namespace W -Name M -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(int f,int x,int y,int d,int e);'
+          function Tap($x,$y) { [W.M]::SetCursorPos($x,$y); Start-Sleep -Milliseconds 150; [W.M]::mouse_event(2,0,0,0,0); [W.M]::mouse_event(4,0,0,0,0); Start-Sleep -Milliseconds 600 }
+          Tap 177 450; [System.Windows.Forms.SendKeys]::SendWait('{DOWN}{ENTER}'); Start-Sleep -Seconds 2
+          [W.M]::SetCursorPos(1900,1000); Start-Sleep -Seconds 2
           Shot '1-main'
-          $vmName = -join ([char[]](0x865A,0x62DF,0x673A,0x5DE5,0x4F4D,0x2026)); Click (Find $root $vmName); Start-Sleep -Seconds 2
-          Shot '2-vm-seats'
-          [System.Windows.Forms.SendKeys]::SendWait('%{F4}'); Start-Sleep -Seconds 1
+          Tap 335 265; Start-Sleep -Seconds 3
+          [W.M]::SetCursorPos(1900,1000); Shot '3-monitor-window'
+          [System.Windows.Forms.SendKeys]::SendWait('{ESC}'); Start-Sleep -Seconds 1
+          Tap 536 144; Start-Sleep -Seconds 3
+          [W.M]::SetCursorPos(1900,1000); Shot '2-vm-seats'
           $p | Stop-Process -Force
           } catch { Write-Output "::error::$($_.Exception.Message) at $($_.InvocationInfo.ScriptLineNumber)" }
           Get-ChildItem shots | ForEach-Object { Write-Output "::notice::shot $($_.Name) $($_.Length)" }
