@@ -16,7 +16,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: v0.2.0-preview.1
+      RELEASE_TAG: v0.2.1-preview.1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,7 +38,7 @@ jobs:
         run: |
           & .\dist\OpenSeat.Tests.exe --self-test 2>&1 | Tee-Object -FilePath native-test-results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Native self-tests failed' }
-          if (-not (Select-String -Path native-test-results.txt -Pattern '14 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
+          if (-not (Select-String -Path native-test-results.txt -Pattern '20 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
       - name: Package executable and checksums
         id: package
         shell: pwsh
@@ -46,17 +46,18 @@ jobs:
           New-Item -ItemType Directory -Force package | Out-Null
           Copy-Item dist\OpenSeat.exe package\OpenSeat.exe
           Copy-Item README.md package\README.md
+          Copy-Item docs\使用说明书.md package\使用说明书.md
           Copy-Item native-test-results.txt package\native-test-results.txt
           @'
-          OpenSeat 0.2 Windows x64 preview
+          OpenSeat 0.2.1 Windows x64 preview
           Run OpenSeat.exe directly. Requires .NET Framework 4.x.
-          This package was compiled on Windows and passed 14 native assertions.
+          This package was compiled on Windows and passed 20 native assertions.
           Physical three-seat hardware has NOT been validated.
           This is an application input-routing test, NOT independent Windows desktops.
           The generated UI mockup is NOT implemented in this release.
           '@ | Set-Content package\START-HERE.txt -Encoding utf8
-          Compress-Archive -Path package\* -DestinationPath OpenSeat-0.2.0-preview.1-win-x64.zip
-          $assets = @('dist\OpenSeat.exe', 'OpenSeat-0.2.0-preview.1-win-x64.zip')
+          Compress-Archive -Path package\* -DestinationPath OpenSeat-0.2.1-preview.1-win-x64.zip
+          $assets = @('dist\OpenSeat.exe', 'OpenSeat-0.2.1-preview.1-win-x64.zip')
           $checksums = foreach ($asset in $assets) {
             $hash = Get-FileHash $asset -Algorithm SHA256
             "$($hash.Hash.ToLowerInvariant())  $(Split-Path $asset -Leaf)"
@@ -67,12 +68,14 @@ jobs:
         shell: pwsh
         run: |
           @'
-          ## OpenSeat 0.2 三工位技术验证版
+          ## OpenSeat 0.2.1 三工位技术验证版
 
-          下载 OpenSeat-0.2.0-preview.1-win-x64.zip，解压后直接运行 OpenSeat.exe，无需安装 Python 或本机编译。
+          下载 OpenSeat-0.2.1-preview.1-win-x64.zip，解压后直接运行 OpenSeat.exe，无需安装 Python 或本机编译。包内附《使用说明书.md》。
           目标环境：Windows 10 及以上 x64，需 .NET Framework 4.x。
 
-          - 已在 GitHub Windows runner 编译，14 项原生配置与输入数据解析断言通过。
+          - 已在 GitHub Windows runner 编译，20 项原生自检通过。
+          - 修复：注册设备通知时已连接设备的“到达”通知会导致绑定/测试被立即停止；现在只在已绑定设备被拔出时停止。
+          - 改进：按键计数过滤长按重复，点击计数包含右键/中键/侧键，工位卡片显示 VID/PID 与在线状态，显示器列表显示分辨率与位置，工位可改名。
           - 包含三屏识别、键鼠绑定、应用内独立测试指针与计数、配置保存和诊断导出。
           - 无账号角色、激活码或收费授权体系。
           - 尚未实现完整 Windows 独立桌面、任意应用输入隔离、音频/GPU/USB 隔离。
@@ -81,7 +84,7 @@ jobs:
 
           附件包含直接运行的 EXE、完整便携 ZIP 和 SHA-256 校验文件。仓库保持私有。
           '@ | Set-Content release-notes.md -Encoding utf8
-          gh release create $env:RELEASE_TAG dist/OpenSeat.exe OpenSeat-0.2.0-preview.1-win-x64.zip SHA256SUMS.txt --target $env:GITHUB_SHA --title 'OpenSeat 0.2 — Windows 三工位技术验证版' --notes-file release-notes.md --prerelease --latest=false
+          gh release create $env:RELEASE_TAG dist/OpenSeat.exe OpenSeat-0.2.1-preview.1-win-x64.zip SHA256SUMS.txt --target $env:GITHUB_SHA --title 'OpenSeat 0.2.1 — Windows 三工位技术验证版' --notes-file release-notes.md --prerelease --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
       - name: Record build and publication outcome
         if: always()

@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Xml.Serialization;
 
@@ -16,6 +17,7 @@ namespace OpenSeatNative {
         public string Keyboard = "";
     }
     public class Settings {
+        public const int MaxNameLength = 40;
         public int Version = 1;
         public Seat[] Seats = new Seat[] {
             new Seat { Name = "工位 1" }, new Seat { Name = "工位 2" }, new Seat { Name = "工位 3" }
@@ -25,8 +27,10 @@ namespace OpenSeatNative {
             var devices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var monitors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (Seat s in Seats) {
-                if (s == null || String.IsNullOrWhiteSpace(s.Name) || s.Name.Length > 40 || s.Mouse == null || s.Keyboard == null || s.Monitor == null)
+                if (s == null || s.Mouse == null || s.Keyboard == null || s.Monitor == null)
                     throw new InvalidDataException("工位字段无效。");
+                if (String.IsNullOrWhiteSpace(s.Name) || s.Name.Length > MaxNameLength)
+                    throw new InvalidDataException("工位名称不能为空，且不能超过 " + MaxNameLength + " 个字符。");
                 foreach (string id in new string[] { s.Mouse, s.Keyboard })
                     if (id != "" && !devices.Add(id)) throw new InvalidDataException("同一个输入设备不能同时分配给两个工位。");
                 if (s.Monitor != "" && !monitors.Add(s.Monitor)) throw new InvalidDataException("同一显示器不能分配给两个工位。");
@@ -35,7 +39,10 @@ namespace OpenSeatNative {
         public static Settings Load(string path) {
             var serializer = new XmlSerializer(typeof(Settings));
             using (var stream = File.OpenRead(path)) {
-                Settings value = (Settings)serializer.Deserialize(stream);
+                Settings value;
+                try { value = (Settings)serializer.Deserialize(stream); }
+                catch (InvalidOperationException ex) { throw new InvalidDataException("配置文件不是有效的 OpenSeat XML：" + (ex.InnerException != null ? ex.InnerException.Message : ex.Message)); }
+                if (value == null) throw new InvalidDataException("配置文件为空。");
                 value.Validate(); return value;
             }
         }
@@ -55,11 +62,26 @@ namespace OpenSeatNative {
     public struct InputEvent {
         public uint Kind;
         public IntPtr Device;
-        public bool KeyDown, Absolute;
+        public bool KeyDown, KeyUp, Absolute;
         public int X, Y;
-        public ushort Buttons;
+        public ushort Buttons, MakeCode, KeyFlags;
+    }
+    // 按物理按键计数：同一个键在松开之前重复发来的“按下”（键盘自动重复）只算一次。
+    public class KeyTracker {
+        readonly HashSet<int> down = new HashSet<int>();
+        public long Presses, RawEvents;
+        public bool Feed(InputEvent e) {
+            if (e.Kind != 1) return false;
+            int id = Native.KeyId(e);
+            if (e.KeyDown) { RawEvents++; if (down.Add(id)) { Presses++; return true; } return false; }
+            if (e.KeyUp) down.Remove(id);
+            return false;
+        }
+        public void Reset() { down.Clear(); }
     }
     public static class Native {
+        public const int WM_DISPLAYCHANGE = 0x007E, WM_INPUT_DEVICE_CHANGE = 0x00FE, WM_INPUT = 0x00FF;
+        public const int GIDC_ARRIVAL = 1, GIDC_REMOVAL = 2;
         [StructLayout(LayoutKind.Sequential)] public struct Header {
             public uint Type, Size; public IntPtr Device; public UIntPtr WParam;
         }
@@ -125,7 +147,11 @@ namespace OpenSeatNative {
                 value.X=Marshal.ReadInt32(body, 12); value.Y=Marshal.ReadInt32(body, 16);
             } else if (header.Type == 1) {
                 if (header.Size < headerSize+16) throw new InvalidDataException("键盘包被截断。");
-                value.KeyDown=(Marshal.ReadInt16(body, 2)&1)==0 && (ushort)Marshal.ReadInt16(body, 0)!=255 && (ushort)Marshal.ReadInt16(body, 6)<255;
+                ushort make=(ushort)Marshal.ReadInt16(body, 0), flags=(ushort)Marshal.ReadInt16(body, 2), vkey=(ushort)Marshal.ReadInt16(body, 6);
+                bool valid = make != 255 && vkey < 255;
+                value.MakeCode=make; value.KeyFlags=flags;
+                value.KeyDown = valid && (flags&1) == 0;
+                value.KeyUp = valid && (flags&1) != 0;
             }
             return value;
         }
@@ -140,10 +166,38 @@ namespace OpenSeatNative {
                 return Decode(buffer, actual);
             } finally { Marshal.FreeHGlobal(buffer); }
         }
+        // 扫描码 + E0/E1 前缀，区分左右 Ctrl/Alt 等共用扫描码的按键。
+        public static int KeyId(InputEvent e) {
+            return e.MakeCode | ((e.KeyFlags & 2) != 0 ? 0x100 : 0) | ((e.KeyFlags & 4) != 0 ? 0x200 : 0);
+        }
+        // 左、右、中、侧键 4、侧键 5 的“按下”标志位：0x1、0x4、0x10、0x40、0x100。
+        public static int ButtonPresses(ushort flags) {
+            int n=0; for (int b=0; b<5; b++) if ((flags & (1 << (2*b))) != 0) n++; return n;
+        }
+        // 从 Raw Input 设备路径中提取便于人工核对的 VID/PID/接口号；USB 与蓝牙两种写法都支持。
+        public static string DeviceLabel(string id) {
+            if (String.IsNullOrEmpty(id)) return "";
+            Match m=Regex.Match(id, @"VID[_&]([0-9A-Fa-f]{4,8}).*?PID[_&]([0-9A-Fa-f]{4})", RegexOptions.IgnoreCase);
+            if (!m.Success) return id.Length > 36 ? "…" + id.Substring(id.Length-36) : id;
+            string vid=m.Groups[1].Value; vid=vid.Substring(vid.Length-4);
+            string label="VID " + vid.ToUpperInvariant() + " · PID " + m.Groups[2].Value.ToUpperInvariant();
+            Match mi=Regex.Match(id, @"MI_([0-9A-Fa-f]{2})", RegexOptions.IgnoreCase);
+            if (mi.Success) label += " · 接口 " + mi.Groups[1].Value.ToUpperInvariant();
+            return label;
+        }
+        public static string MonitorLabel(string deviceName) {
+            if (String.IsNullOrEmpty(deviceName)) return "（未选择）";
+            string shortName=deviceName.StartsWith(@"\\.\") ? deviceName.Substring(4) : deviceName;
+            foreach (Screen s in Screen.AllScreens)
+                if (String.Equals(s.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase))
+                    return shortName + " · " + s.Bounds.Width + "×" + s.Bounds.Height + " · 位置 (" + s.Bounds.X + "," + s.Bounds.Y + ")" + (s.Primary ? " · 主屏" : "");
+            return shortName + " · 未连接";
+        }
     }
     public class SeatCanvas : Control {
         public int PointerX=100, PointerY=150;
-        public long MouseEvents, KeyEvents, Clicks;
+        public long MouseEvents, Clicks;
+        public KeyTracker KeyCounter=new KeyTracker();
         public string SeatName="";
         public SeatCanvas() { DoubleBuffered=true; BackColor=Color.FromArgb(17,27,45); ForeColor=Color.White; }
         public void Receive(InputEvent e) {
@@ -151,14 +205,14 @@ namespace OpenSeatNative {
                 MouseEvents++;
                 if (e.Absolute) { PointerX=(int)(Math.Max(0, Math.Min(65535,e.X))/65535.0*Math.Max(1,Width-16)); PointerY=(int)(Math.Max(0, Math.Min(65535,e.Y))/65535.0*Math.Max(1,Height-16)); }
                 else { PointerX=(int)Math.Max(0,Math.Min((long)Math.Max(0,Width-16),(long)PointerX+e.X)); PointerY=(int)Math.Max(0,Math.Min((long)Math.Max(0,Height-16),(long)PointerY+e.Y)); }
-                if ((e.Buttons&1)!=0) Clicks++;
-            } else if (e.Kind==1 && e.KeyDown) KeyEvents++;
+                Clicks+=Native.ButtonPresses(e.Buttons);
+            } else if (e.Kind==1) KeyCounter.Feed(e);
         }
         protected override void OnPaint(PaintEventArgs e) {
             base.OnPaint(e);
             using (var heading=new Font("Microsoft YaHei UI",24,FontStyle.Bold)) e.Graphics.DrawString(SeatName,heading,Brushes.White,20,20);
-            e.Graphics.DrawString("应用内输入测试 · 不是独立 Windows 桌面",Font,Brushes.LightSteelBlue,20,75);
-            e.Graphics.DrawString("鼠标事件 "+MouseEvents+"    点击 "+Clicks+"    按键事件 "+KeyEvents,Font,Brushes.White,20,105);
+            e.Graphics.DrawString("应用内输入测试 · 不是独立 Windows 桌面 · Esc 结束全部测试",Font,Brushes.LightSteelBlue,20,75);
+            e.Graphics.DrawString("鼠标事件 "+MouseEvents+"    点击 "+Clicks+"    按键 "+KeyCounter.Presses+" 次（原始按键事件 "+KeyCounter.RawEvents+"，长按重复已过滤）",Font,Brushes.White,20,105);
             e.Graphics.FillEllipse(Brushes.DeepSkyBlue,PointerX,PointerY,16,16);
         }
     }
@@ -173,19 +227,20 @@ namespace OpenSeatNative {
     public class MainWindow : Form {
         Settings config=new Settings();
         string configPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OpenSeat","three-seat.xml");
-        ComboBox[] screens=new ComboBox[3]; Label[] bindings=new Label[3];
+        ComboBox[] screens=new ComboBox[3]; Label[] bindings=new Label[3]; TextBox[] nameBoxes=new TextBox[3];
         List<TestWindow> windows=new List<TestWindow>();
         Dictionary<IntPtr,string> names=new Dictionary<IntPtr,string>();
+        HashSet<string> known=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         Label status=new Label(); TextBox inventory=new TextBox();
         Timer clock=new Timer(); Button runButton;
         bool running=false, dirty=false, refreshing=false;
         int bindSeat=-1; uint bindKind; DateTime armAt, expires;
         public MainWindow() {
-            Text="OpenSeat 0.2 · 三工位技术验证版"; Size=new Size(1080,790); MinimumSize=new Size(940,720);
+            Text="OpenSeat "+Program.AppVersion+" · 三工位技术验证版"; Size=new Size(1080,850); MinimumSize=new Size(940,780);
             Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(242,246,251);
             var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(20),ColumnCount=1,RowCount=6 };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute,78)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,255)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,54));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,320)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,54));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent,100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
             Controls.Add(layout);
             var title=new Label { Text="OpenSeat / 三工位\n真实设备识别与应用内输入路由；完整桌面隔离引擎尚未实现。",Dock=DockStyle.Fill,Font=new Font(Font.FontFamily,15,FontStyle.Bold) };
@@ -199,18 +254,22 @@ namespace OpenSeatNative {
                 cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,33.333f)); int seat=i;
                 var card=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,Padding=new Padding(10),BackColor=Color.White,Margin=new Padding(4) };
                 card.Controls.Add(new Label { Text="工位 "+(i+1),Font=new Font(Font.FontFamily,16,FontStyle.Bold),AutoSize=true });
-                screens[i]=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=275 };
+                nameBoxes[i]=new TextBox { Width=275,MaxLength=Settings.MaxNameLength };
+                nameBoxes[i].TextChanged+=delegate { if(!refreshing) { config.Seats[seat].Name=nameBoxes[seat].Text; dirty=true; } };
+                card.Controls.Add(nameBoxes[i]);
+                screens[i]=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Width=275,FormattingEnabled=true };
+                screens[i].Format+=delegate(object sender,ListControlConvertEventArgs e) { e.Value=Native.MonitorLabel(e.ListItem as string); };
                 screens[i].SelectedIndexChanged+=delegate { if(!refreshing) { if(running) Stop(); config.Seats[seat].Monitor=(string)screens[seat].SelectedItem ?? ""; dirty=true; } };
                 card.Controls.Add(screens[i]);
                 card.Controls.Add(Button("绑定鼠标：稍后移动它",delegate { Arm(seat,0); }));
                 card.Controls.Add(Button("绑定键盘：稍后按一下",delegate { Arm(seat,1); }));
-                card.Controls.Add(Button("清除此工位绑定",delegate { Stop(); config.Seats[seat].Mouse=""; config.Seats[seat].Keyboard=""; dirty=true; UpdateLabels(); }));
-                bindings[i]=new Label { Width=285,Height=55 }; card.Controls.Add(bindings[i]); cards.Controls.Add(card,i,0);
+                card.Controls.Add(Button("清除此工位绑定",delegate { Stop(); config.Seats[seat].Mouse=""; config.Seats[seat].Keyboard=""; dirty=true; UpdateLabels(); status.Text="已清除"+config.Seats[seat].Name+"的键鼠绑定。"; }));
+                bindings[i]=new Label { Width=285,Height=75 }; card.Controls.Add(bindings[i]); cards.Controls.Add(card,i,0);
             }
             layout.Controls.Add(cards,0,2);
             var controls=new FlowLayoutPanel { Dock=DockStyle.Fill };
             runButton=Button("启动三屏输入测试", Toggle); controls.Controls.Add(runButton);
-            controls.Controls.Add(Button("停止 / 取消绑定",Stop)); controls.Controls.Add(Button("导出诊断报告",Report));
+            controls.Controls.Add(Button("停止 / 取消绑定",delegate { Stop(); status.Text="已停止。"; })); controls.Controls.Add(Button("导出诊断报告",Report));
             layout.Controls.Add(controls,0,3);
             inventory.Multiline=true; inventory.ReadOnly=true; inventory.ScrollBars=ScrollBars.Both; inventory.WordWrap=false; inventory.Dock=DockStyle.Fill;
             layout.Controls.Add(inventory,0,4); status.Dock=DockStyle.Fill; status.Text="就绪。需要三台扩展模式显示器、三个可独立识别的鼠标；键盘可选。"; layout.Controls.Add(status,0,5);
@@ -223,31 +282,78 @@ namespace OpenSeatNative {
         }
         Button Button(string text, Action action) { var b=new Button { Text=text,AutoSize=true,Height=34,Margin=new Padding(3) }; b.Click+=delegate { try { action(); } catch(Exception ex) { Error(ex); } }; return b; }
         void Error(Exception ex) { MessageBox.Show(this,ex.Message,"OpenSeat",MessageBoxButtons.OK,MessageBoxIcon.Error); }
-        void UpdateLabels() { for(int i=0;i<3;i++) bindings[i].Text="鼠标："+(config.Seats[i].Mouse=="" ? "未绑定" : "已绑定")+"\n键盘："+(config.Seats[i].Keyboard=="" ? "未绑定（可选）" : "已绑定"); }
+        static string Online(string id, Dictionary<string,uint> online) { return online==null ? "" : (online.ContainsKey(id) ? " [在线]" : " [离线]"); }
+        void UpdateLabels() {
+            Dictionary<string,uint> online=null; try { online=Native.Inventory(); } catch { }
+            for(int i=0;i<3;i++) {
+                Seat s=config.Seats[i];
+                bindings[i].Text="鼠标："+(s.Mouse=="" ? "未绑定" : Native.DeviceLabel(s.Mouse)+Online(s.Mouse,online))
+                    +"\n键盘："+(s.Keyboard=="" ? "未绑定（可选）" : Native.DeviceLabel(s.Keyboard)+Online(s.Keyboard,online));
+            }
+        }
         string Describe() {
-            var b=new StringBuilder(); b.AppendLine("OpenSeat 0.2 | OS: "+Environment.OSVersion+" | 64-bit process: "+Environment.Is64BitProcess);
+            var b=new StringBuilder(); b.AppendLine("OpenSeat "+Program.AppVersion+" | OS: "+Environment.OSVersion+" | 64-bit process: "+Environment.Is64BitProcess);
             b.AppendLine("屏幕拓扑（Windows 必须设置为扩展模式）：");
-            foreach(Screen s in Screen.AllScreens) b.AppendLine(s.DeviceName+" "+s.Bounds+" primary="+s.Primary);
+            foreach(Screen s in Screen.AllScreens) b.AppendLine("  "+Native.MonitorLabel(s.DeviceName));
             b.AppendLine("Raw Input 设备（不是 PnP 清单的 ID；复合接收器可能合并设备）：");
-            var online=Native.Inventory(); foreach(var item in online) b.AppendLine((item.Value==0 ? "鼠标 " : "键盘 ")+item.Key);
-            foreach(Seat s in config.Seats) b.AppendLine(s.Name+" | "+s.Monitor+"\r\n鼠标："+s.Mouse+(online.ContainsKey(s.Mouse)?" [在线]":" [未绑定/离线]")+"\r\n键盘："+s.Keyboard+(online.ContainsKey(s.Keyboard)?" [在线]":" [未绑定/离线]"));
+            var online=Native.Inventory(); foreach(var item in online) b.AppendLine("  "+(item.Value==0 ? "鼠标 " : "键盘 ")+Native.DeviceLabel(item.Key)+"  "+item.Key);
+            b.AppendLine("工位绑定：");
+            foreach(Seat s in config.Seats) b.AppendLine("  "+s.Name+" | 屏幕："+Native.MonitorLabel(s.Monitor)+"\r\n    鼠标："+(s.Mouse==""?"未绑定":s.Mouse+Online(s.Mouse,online))+"\r\n    键盘："+(s.Keyboard==""?"未绑定":s.Keyboard+Online(s.Keyboard,online)));
             b.AppendLine("desktopIsolation=false; sessionEngine=false; audioRouting=false; inputTestOnly=true"); return b.ToString();
         }
         void RefreshInventory() {
             Stop(); names.Clear(); refreshing=true;
-            try { for(int i=0;i<3;i++) { screens[i].Items.Clear(); screens[i].Items.Add(""); foreach(Screen s in Screen.AllScreens) screens[i].Items.Add(s.DeviceName); if(config.Seats[i].Monitor!=""&&!screens[i].Items.Contains(config.Seats[i].Monitor)) screens[i].Items.Add(config.Seats[i].Monitor); screens[i].SelectedItem=config.Seats[i].Monitor; } }
+            try {
+                for(int i=0;i<3;i++) {
+                    nameBoxes[i].Text=config.Seats[i].Name;
+                    screens[i].Items.Clear(); screens[i].Items.Add(""); foreach(Screen s in Screen.AllScreens) screens[i].Items.Add(s.DeviceName);
+                    if(config.Seats[i].Monitor!=""&&!screens[i].Items.Contains(config.Seats[i].Monitor)) screens[i].Items.Add(config.Seats[i].Monitor);
+                    screens[i].SelectedItem=config.Seats[i].Monitor;
+                }
+            }
             finally { refreshing=false; }
             UpdateLabels(); inventory.Text=Describe();
         }
+        // 记录当前在线设备后再注册监听。注册 RIDEV_DEVNOTIFY 时 Windows 会对已连接设备逐一发送“到达”通知，
+        // 这些已知设备不应被当成连接变化。
+        void Listen() {
+            known=new HashSet<string>(Native.Inventory().Keys,StringComparer.OrdinalIgnoreCase);
+            Native.Register(Handle,true);
+        }
         void Arm(int seat,uint kind) {
-            Stop(); Native.Register(Handle,true); bindSeat=seat; bindKind=kind; armAt=DateTime.UtcNow.AddSeconds(1); expires=DateTime.UtcNow.AddSeconds(20);
-            status.Text="等待绑定工位 "+(seat+1)+"：1 秒后只操作目标"+(kind==0?"鼠标（移动）":"键盘（按键）")+"。20 秒超时；请勿操作其他同类设备。";
+            Stop(); Listen(); bindSeat=seat; bindKind=kind; armAt=DateTime.UtcNow.AddSeconds(1); expires=DateTime.UtcNow.AddSeconds(20);
+            status.Text="等待绑定"+config.Seats[seat].Name+"：1 秒后只操作目标"+(kind==0?"鼠标（移动）":"键盘（按键）")+"。20 秒超时；请勿操作其他同类设备。";
         }
         bool OurForeground() { IntPtr foreground=Native.GetForegroundWindow(); if(foreground==Handle) return true; foreach(TestWindow w in windows) if(!w.IsDisposed && w.Handle==foreground) return true; return false; }
+        bool IsBound(string id) {
+            foreach(Seat s in config.Seats) if(String.Equals(s.Mouse,id,StringComparison.OrdinalIgnoreCase)||String.Equals(s.Keyboard,id,StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+        void DeviceChanged(long kind,IntPtr handle) {
+            if(kind==Native.GIDC_ARRIVAL) {
+                string id=Native.DeviceName(handle); if(id=="") return;
+                names[handle]=id;
+                if(known.Add(id)) status.Text="检测到新接入的输入设备（"+Native.DeviceLabel(id)+"）。当前操作继续；如需绑定它，请结束后刷新。";
+                return;
+            }
+            if(kind!=Native.GIDC_REMOVAL) return;
+            string removed; bool affected=false;
+            if(names.TryGetValue(handle,out removed)) { names.Remove(handle); known.Remove(removed); affected=IsBound(removed); }
+            else {
+                try {
+                    var online=Native.Inventory(); known=new HashSet<string>(online.Keys,StringComparer.OrdinalIgnoreCase);
+                    foreach(Seat s in config.Seats) if((s.Mouse!=""&&!online.ContainsKey(s.Mouse))||(s.Keyboard!=""&&!online.ContainsKey(s.Keyboard))) affected=true;
+                } catch { affected=true; }
+            }
+            if(running && affected) { Stop(); status.Text="已绑定的输入设备被拔出，测试已停止。请重新连接后刷新并核对绑定。"; }
+            else if(affected) UpdateLabels();
+        }
         protected override void WndProc(ref Message m) {
-            if(m.Msg==0x00FE && (running || bindSeat>=0)) { Stop(); names.Clear(); status.Text="设备连接发生变化，测试已停止，请刷新并核对绑定。"; }
-            if(m.Msg==0x007E && (running || bindSeat>=0)) { Stop(); status.Text="显示拓扑发生变化，测试已停止，请刷新。"; }
-            if(m.Msg==0x00FF && (running || bindSeat>=0) && OurForeground()) {
+            if(m.Msg==Native.WM_INPUT_DEVICE_CHANGE && (running || bindSeat>=0)) {
+                try { DeviceChanged(m.WParam.ToInt64(),m.LParam); } catch(Exception ex) { Stop(); status.Text="设备变化处理失败，测试已停止："+ex.Message; }
+            }
+            if(m.Msg==Native.WM_DISPLAYCHANGE && (running || bindSeat>=0)) { Stop(); status.Text="显示拓扑发生变化，测试已停止，请刷新。"; }
+            if(m.Msg==Native.WM_INPUT && (running || bindSeat>=0) && OurForeground()) {
                 try {
                     InputEvent input=Native.Read(m.LParam);
                     string id;
@@ -260,14 +366,14 @@ namespace OpenSeatNative {
         void Route(string id,InputEvent input) {
             if(bindSeat>=0) {
                 if(DateTime.UtcNow<armAt || input.Kind!=bindKind || (bindKind==0 && input.X==0 && input.Y==0) || (bindKind==1 && !input.KeyDown)) return;
-                for(int i=0;i<3;i++) if(i!=bindSeat && (String.Equals(config.Seats[i].Mouse,id,StringComparison.OrdinalIgnoreCase)||String.Equals(config.Seats[i].Keyboard,id,StringComparison.OrdinalIgnoreCase))) { Stop(); status.Text="设备已绑定其他工位；请先清除旧绑定。"; return; }
+                for(int i=0;i<3;i++) if(i!=bindSeat && (String.Equals(config.Seats[i].Mouse,id,StringComparison.OrdinalIgnoreCase)||String.Equals(config.Seats[i].Keyboard,id,StringComparison.OrdinalIgnoreCase))) { Stop(); status.Text="这个设备已绑定到"+config.Seats[i].Name+"；请先清除旧绑定。"; return; }
                 int target=bindSeat; if(bindKind==0) config.Seats[target].Mouse=id; else config.Seats[target].Keyboard=id;
-                dirty=true; Stop(); UpdateLabels(); inventory.Text=Describe(); status.Text="工位 "+(target+1)+" 绑定完成，请保存配置。"; return;
+                dirty=true; Stop(); UpdateLabels(); inventory.Text=Describe(); status.Text=config.Seats[target].Name+" 绑定完成（"+Native.DeviceLabel(id)+"），请保存配置。"; return;
             }
             for(int i=0;i<3 && i<windows.Count;i++) if(!windows[i].IsDisposed && ((input.Kind==0 && String.Equals(config.Seats[i].Mouse,id,StringComparison.OrdinalIgnoreCase))||(input.Kind==1 && String.Equals(config.Seats[i].Keyboard,id,StringComparison.OrdinalIgnoreCase)))) windows[i].Canvas.Receive(input);
         }
         void Toggle() {
-            if(running) { Stop(); return; } Stop(); config.Validate();
+            if(running) { Stop(); status.Text="测试已停止。"; return; } Stop(); config.Validate();
             var online=Native.Inventory(); var chosen=new List<Screen>();
             foreach(Seat s in config.Seats) {
                 Screen found=null; foreach(Screen screen in Screen.AllScreens) if(screen.DeviceName==s.Monitor) found=screen;
@@ -276,8 +382,8 @@ namespace OpenSeatNative {
                 if(s.Keyboard!="" && (!online.ContainsKey(s.Keyboard)||online[s.Keyboard]!=1)) throw new InvalidOperationException(s.Name+" 绑定的键盘离线或类型不匹配。");
             }
             try {
-                Native.Register(Handle,true); running=true;
-                for(int i=0;i<3;i++) { var window=new TestWindow(config.Seats[i],chosen[i].WorkingArea); windows.Add(window); window.FormClosed+=delegate { if(running) BeginInvoke((Action)Stop); }; window.Show(this); }
+                Listen(); running=true;
+                for(int i=0;i<3;i++) { var window=new TestWindow(config.Seats[i],chosen[i].WorkingArea); windows.Add(window); window.FormClosed+=delegate { if(running) BeginInvoke((Action)delegate { Stop(); status.Text="测试窗口已关闭，全部测试停止。"; }); }; window.Show(this); }
                 runButton.Text="停止三屏输入测试"; status.Text="测试进行中。蓝点是应用内指针；系统鼠标仍共享。只统计本程序前台时的输入，不记录按键内容。Esc 可关闭测试窗口。";
             } catch { Stop(); throw; }
         }
@@ -289,19 +395,22 @@ namespace OpenSeatNative {
         }
         void Identify() {
             foreach(Screen s in Screen.AllScreens) {
-                var popup=new Form { StartPosition=FormStartPosition.Manual,Bounds=new Rectangle(s.Bounds.X+50,s.Bounds.Y+50,400,150),TopMost=true,FormBorderStyle=FormBorderStyle.FixedToolWindow,Text="OpenSeat 显示屏编号" };
-                popup.Controls.Add(new Label { Dock=DockStyle.Fill,Text=s.DeviceName,TextAlign=ContentAlignment.MiddleCenter,Font=new Font(Font.FontFamily,28,FontStyle.Bold) });
+                string owner="未分配给任何工位";
+                foreach(Seat seat in config.Seats) if(String.Equals(seat.Monitor,s.DeviceName,StringComparison.OrdinalIgnoreCase)) owner="已分配给："+seat.Name;
+                var popup=new Form { StartPosition=FormStartPosition.Manual,Bounds=new Rectangle(s.Bounds.X+50,s.Bounds.Y+50,520,190),TopMost=true,FormBorderStyle=FormBorderStyle.FixedToolWindow,Text="OpenSeat 显示屏编号" };
+                popup.Controls.Add(new Label { Dock=DockStyle.Fill,Text=s.DeviceName.Replace(@"\\.\","")+"\n"+owner,TextAlign=ContentAlignment.MiddleCenter,Font=new Font(Font.FontFamily,24,FontStyle.Bold) });
                 var timer=new Timer { Interval=2500 }; timer.Tick+=delegate { popup.Close(); }; popup.FormClosed+=delegate { timer.Stop(); timer.Dispose(); }; popup.Show(this); timer.Start();
             }
         }
         void Save() { config.Save(configPath); dirty=false; status.Text="已保存："+configPath; }
         bool ConfirmDiscard() { if(!dirty) return true; var answer=MessageBox.Show(this,"保存当前绑定配置？","未保存修改",MessageBoxButtons.YesNoCancel); if(answer==DialogResult.Cancel) return false; if(answer==DialogResult.Yes) { try { Save(); } catch(Exception ex) { Error(ex); return false; } } return true; }
-        void Import() { if(!ConfirmDiscard()) return; using(var dialog=new OpenFileDialog { Filter="OpenSeat XML|*.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { Settings candidate=Settings.Load(dialog.FileName); Stop(); config=candidate; dirty=true; RefreshInventory(); } }
-        void Export() { using(var dialog=new SaveFileDialog { Filter="OpenSeat XML|*.xml",FileName="three-seat.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) config.Save(dialog.FileName); }
+        void Import() { if(!ConfirmDiscard()) return; using(var dialog=new OpenFileDialog { Filter="OpenSeat XML|*.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { Settings candidate=Settings.Load(dialog.FileName); Stop(); config=candidate; dirty=true; RefreshInventory(); status.Text="已导入，尚未保存；确认无误后请点“保存配置”。"; } }
+        void Export() { using(var dialog=new SaveFileDialog { Filter="OpenSeat XML|*.xml",FileName="three-seat.xml" }) if(dialog.ShowDialog(this)==DialogResult.OK) { config.Save(dialog.FileName); status.Text="已导出："+dialog.FileName; } }
         void Report() { using(var dialog=new SaveFileDialog { Filter="文本报告|*.txt",FileName="OpenSeat-diagnostics.txt" }) if(dialog.ShowDialog(this)==DialogResult.OK) { File.WriteAllText(dialog.FileName,Describe(),Encoding.UTF8); status.Text="诊断报告已导出（含设备实例 ID，不含输入内容）。"; } }
         protected override void Dispose(bool disposing) { if(disposing) clock.Dispose(); base.Dispose(disposing); }
     }
     public static class Program {
+        public const string AppVersion="0.2.1";
         [STAThread] public static int Main(string[] args) {
             if(args.Length>0 && args[0]=="--self-test") return SelfTest.Run();
             try { Native.SetProcessDPIAware(); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new MainWindow()); return 0; }

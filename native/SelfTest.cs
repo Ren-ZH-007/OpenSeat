@@ -44,7 +44,19 @@ namespace OpenSeatNative {
                     Marshal.WriteInt16(p,h+6,65); Assert(Native.Decode(p,(uint)(h+16)).KeyDown,"key make");
                     Marshal.WriteInt16(p,h+2,1); Assert(!Native.Decode(p,(uint)(h+16)).KeyDown,"key break");
                     Marshal.WriteInt16(p,h+2,0); Marshal.WriteInt16(p,h,255); Assert(!Native.Decode(p,(uint)(h+16)).KeyDown,"keyboard overrun ignored");
+                    Marshal.WriteInt16(p,h,0x1D); Marshal.WriteInt16(p,h+2,2); Marshal.WriteInt16(p,h+6,0x11);
+                    InputEvent rightCtrl=Native.Decode(p,(uint)(h+16));
+                    Assert(rightCtrl.KeyDown && Native.KeyId(rightCtrl)==0x11D,"E0 prefixed key identity");
                 });
+                Assert(Native.ButtonPresses(0x0005)==2 && Native.ButtonPresses(0x0002)==0 && Native.ButtonPresses(0x0150)==3,"multi-button press count");
+                var keys=new KeyTracker();
+                InputEvent down=new InputEvent { Kind=1,KeyDown=true,MakeCode=30 }, up=new InputEvent { Kind=1,KeyUp=true,MakeCode=30 };
+                keys.Feed(down); keys.Feed(down); keys.Feed(down); keys.Feed(up); keys.Feed(down);
+                Assert(keys.Presses==2 && keys.RawEvents==4,"auto-repeat filtered");
+                Assert(Native.DeviceLabel(@"\\?\HID#VID_046D&PID_C52B&MI_01&Col01#7&2a0f&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91e6bf6}")=="VID 046D · PID C52B · 接口 01","USB device label");
+                Assert(Native.DeviceLabel(@"\\?\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&0002046d_PID&b023&Col01#8&1b2c&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91e6bf6}")=="VID 046D · PID B023","Bluetooth device label");
+                var named=new Settings(); named.Seats[0].Name=new string('x',Settings.MaxNameLength+1);
+                Reject(named.Validate,"overlong seat name rejected");
                 Notify(count+" checks passed.\nHardware routing and desktop isolation are NOT validated.","OpenSeat self-test"); return 0;
             } catch(Exception ex) { Notify(ex.ToString(),"OpenSeat self-test FAILED"); return 1; }
             finally { if(Directory.Exists(directory)) Directory.Delete(directory,true); }
