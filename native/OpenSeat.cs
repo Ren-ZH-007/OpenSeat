@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -313,7 +313,7 @@ namespace OpenSeatNative {
             Text="OpenSeat "+Program.AppVersion+" · 三工位技术验证版"; Size=new Size(1080,1030); MinimumSize=new Size(940,960);
             Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(242,246,251);
             var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(20),ColumnCount=1,RowCount=7 };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,78)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,56)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,180));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,78)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,94)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,180));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute,320)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,54));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent,100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
             Controls.Add(layout);
@@ -323,6 +323,7 @@ namespace OpenSeatNative {
             toolbar.Controls.Add(Button("刷新设备 / 屏幕", RefreshInventory)); toolbar.Controls.Add(Button("显示屏编号", Identify));
             toolbar.Controls.Add(Button("保存配置", Save)); toolbar.Controls.Add(Button("导入配置", Import)); toolbar.Controls.Add(Button("导出配置", Export));
             toolbar.Controls.Add(Button("虚拟机工位…", OpenVmSeats));
+            toolbar.Controls.Add(Button("原生工位游戏…", OpenGaming));
             monitorToggle=new CheckBox { Text="屏幕监控",Checked=true,AutoSize=true,Margin=new Padding(12,9,3,3) };
             monitorToggle.CheckedChanged+=delegate { if(monitorToggle.Checked) RefreshMonitors(); else foreach(MonitorTile tile in tiles) tile.ShowMessage("屏幕监控已暂停"); };
             toolbar.Controls.Add(monitorToggle);
@@ -383,6 +384,13 @@ namespace OpenSeatNative {
             if(existing!=null && !existing.IsDisposed) { if(existing.WindowState==FormWindowState.Minimized) existing.WindowState=FormWindowState.Normal; existing.Activate(); return; }
             var window=new MonitorWindow(config.Seats[seat].Name,delegate { return config.Seats[seat].Monitor; },Screen.FromControl(this).WorkingArea);
             monitorWindows[seat]=window; window.Show(this);
+        }
+        void OpenGaming() {
+            string path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"OpenSeat.Gaming.exe");
+            if(!File.Exists(path)) throw new FileNotFoundException("缺少 OpenSeat.Gaming.exe，请使用包含两个 EXE 的完整开发包。");
+            Stop(); monitorToggle.Checked=false;
+            foreach(MonitorWindow window in monitorWindows) if(window!=null && !window.IsDisposed) window.Close();
+            using(var process=System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute=false,WorkingDirectory=AppDomain.CurrentDomain.BaseDirectory })) { }
         }
         void OpenVmSeats() {
             if(vmWindow!=null && !vmWindow.IsDisposed) { if(vmWindow.WindowState==FormWindowState.Minimized) vmWindow.WindowState=FormWindowState.Normal; vmWindow.Activate(); return; }
@@ -529,3 +537,4 @@ namespace OpenSeatNative {
         }
     }
 }
+
