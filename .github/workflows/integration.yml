@@ -17,7 +17,8 @@ jobs:
           persist-credentials: false
       - name: Screen resolution 1920x1080
         shell: pwsh
-        run: try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { Write-Output "unchanged: $_" }
+        run: |
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { Write-Output "unchanged: $_" }
       - name: Build app, integration test and fake vmware.exe
         shell: pwsh
         run: |
