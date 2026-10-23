@@ -1,0 +1,117 @@
+name: Build and release Windows preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release.yml']
+permissions:
+  contents: write
+concurrency:
+  group: openseat-preview-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: v0.2.0-preview.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile Windows x64 application
+        id: build
+        shell: pwsh
+        run: |
+          cmd /c build-native.cmd
+          if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
+          $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $compiler /nologo /target:exe /platform:x64 /optimize+ /out:dist\OpenSeat.Tests.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\SelfTest.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
+      - name: Run native configuration and input parsing tests
+        id: tests
+        shell: pwsh
+        env:
+          OPENSEAT_CI: '1'
+        run: |
+          & .\dist\OpenSeat.Tests.exe --self-test 2>&1 | Tee-Object -FilePath native-test-results.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Native self-tests failed' }
+          if (-not (Select-String -Path native-test-results.txt -Pattern '14 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
+      - name: Package executable and checksums
+        id: package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item dist\OpenSeat.exe package\OpenSeat.exe
+          Copy-Item README.md package\README.md
+          Copy-Item native-test-results.txt package\native-test-results.txt
+          @'
+          OpenSeat 0.2 Windows x64 preview
+          Run OpenSeat.exe directly. Requires .NET Framework 4.x.
+          This package was compiled on Windows and passed 14 native assertions.
+          Physical three-seat hardware has NOT been validated.
+          This is an application input-routing test, NOT independent Windows desktops.
+          The generated UI mockup is NOT implemented in this release.
+          '@ | Set-Content package\START-HERE.txt -Encoding utf8
+          Compress-Archive -Path package\* -DestinationPath OpenSeat-0.2.0-preview.1-win-x64.zip
+          $assets = @('dist\OpenSeat.exe', 'OpenSeat-0.2.0-preview.1-win-x64.zip')
+          $checksums = foreach ($asset in $assets) {
+            $hash = Get-FileHash $asset -Algorithm SHA256
+            "$($hash.Hash.ToLowerInvariant())  $(Split-Path $asset -Leaf)"
+          }
+          $checksums | Set-Content SHA256SUMS.txt -Encoding ascii
+      - name: Publish private-repository prerelease
+        id: publish
+        shell: pwsh
+        run: |
+          @'
+          ## OpenSeat 0.2 三工位技术验证版
+
+          下载 OpenSeat-0.2.0-preview.1-win-x64.zip，解压后直接运行 OpenSeat.exe，无需安装 Python 或本机编译。
+          目标环境：Windows 10 及以上 x64，需 .NET Framework 4.x。
+
+          - 已在 GitHub Windows runner 编译，14 项原生配置与输入数据解析断言通过。
+          - 包含三屏识别、键鼠绑定、应用内独立测试指针与计数、配置保存和诊断导出。
+          - 无账号角色、激活码或收费授权体系。
+          - 尚未实现完整 Windows 独立桌面、任意应用输入隔离、音频/GPU/USB 隔离。
+          - 三套真实硬件尚未验收；展示过的美化模拟界面尚未应用。
+          - 本发布为未签名便携 EXE，并非安装程序。
+
+          附件包含直接运行的 EXE、完整便携 ZIP 和 SHA-256 校验文件。仓库保持私有。
+          '@ | Set-Content release-notes.md -Encoding utf8
+          gh release create $env:RELEASE_TAG dist/OpenSeat.exe OpenSeat-0.2.0-preview.1-win-x64.zip SHA256SUMS.txt --target $env:GITHUB_SHA --title 'OpenSeat 0.2 — Windows 三工位技术验证版' --notes-file release-notes.md --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+      - name: Record build and publication outcome
+        if: always()
+        shell: pwsh
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+        run: |
+          $record = @{
+            tag = $env:RELEASE_TAG
+            source_sha = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            build = $env:BUILD_OUTCOME
+            tests = $env:TEST_OUTCOME
+            package = $env:PACKAGE_OUTCOME
+            publish = $env:PUBLISH_OUTCOME
+            release_url = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG"
+            timestamp_utc = [DateTime]::UtcNow.ToString('o')
+          } | ConvertTo-Json
+          $endpoint = "repos/$env:GITHUB_REPOSITORY/contents/.release-status/$env:RELEASE_TAG.json"
+          $old = gh api $endpoint 2>$null | ConvertFrom-Json
+          $payload = @{
+            message = "ci: record $env:RELEASE_TAG build outcome"
+            content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($record))
+            branch = 'main'
+          }
+          if ($old.sha) { $payload.sha = $old.sha }
+          $payload | ConvertTo-Json | Set-Content outcome-request.json -Encoding utf8
+          gh api --method PUT $endpoint --input outcome-request.json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not record release outcome' }
