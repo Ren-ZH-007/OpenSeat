@@ -1,4 +1,4 @@
-# OpenSeat 0.2 — 三工位技术验证版
+# OpenSeat 0.3 — 三工位预览版
 
 目标：Windows 10 及以上 x64，RTX 3050 及以上显卡，3 台显示器、3 个鼠标，键盘按 3 套设计但允许不绑定。
 
@@ -10,7 +10,7 @@
 
 ## 下载已编译版本
 
-[下载 Windows x64 便携包](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.1-preview.1/OpenSeat-0.2.1-preview.1-win-x64.zip) · [直接下载 EXE](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.1-preview.1/OpenSeat.exe) · [发布说明](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.2.1-preview.1)
+[下载 Windows x64 便携包](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.3.0-preview.1/OpenSeat-0.3.0-preview.1-win-x64.zip) · [直接下载 EXE](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.3.0-preview.1/OpenSeat.exe) · [发布说明](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.3.0-preview.1)
 
 私有仓库需要登录有权限的 GitHub 账号。便携包解压后运行 `OpenSeat.exe`，无需 Python 或本机编译；需 .NET Framework 4.x。程序未进行代码签名。这是技术验证预发布版，模拟效果图尚未应用到实际界面。
 
@@ -63,8 +63,10 @@
 | 三屏应用内指针与计数分流 | 实现，不等于 Windows 桌面输入隔离 |
 | 热插拔/显示变动时停止测试 | 实现，待实机验证 |
 | 配置校验、保存、导入导出 | 实现，附 Windows 自检 |
-| 完整独立桌面会话 | 未实现 |
-| 对任意 Windows 应用的输入隔离 | 未实现 |
+| 屏幕监控（缩略图 + 放大监控窗） | 0.2.2 实现，待硬件验证 |
+| VMware 虚拟机工位（USB 直通、窗口定位、主机鼠标锁定） | 0.3.0 实现，待实机验证 |
+| 不依赖虚拟机的完整独立桌面会话 | 未实现 |
+| 对任意 Windows 应用的输入隔离 | 仅通过虚拟机工位实现（第 14 节） |
 | GPU/音频/USB Hub/磁盘隔离 | 未实现 |
 | 安装器、驱动、签名 | 未实现 |
 | RTX 3050 及以上全型号兼容 | 未验证，不承诺 |

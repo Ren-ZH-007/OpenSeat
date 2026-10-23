@@ -8,7 +8,7 @@ if not exist "%OPEN_SEAT_CSC%" (
   exit /b 1
 )
 if not exist dist mkdir dist
-"%OPEN_SEAT_CSC%" /nologo /target:winexe /platform:x64 /optimize+ /out:dist\OpenSeat.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\SelfTest.cs
+"%OPEN_SEAT_CSC%" /nologo /target:winexe /platform:x64 /optimize+ /out:dist\OpenSeat.exe /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll native\OpenSeat.cs native\VmSeats.cs native\SelfTest.cs
 if errorlevel 1 (
   echo Build failed. See compiler errors above.
   exit /b 1
