@@ -62,7 +62,7 @@ namespace OpenSeatNative {
                 VmPlan.UsbId usb;
                 Assert(VmPlan.TryParseUsb(@"\\?\HID#VID_046D&PID_C52B&MI_01&Col01#7&2a0f&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91e6bf6}",out usb) && usb.Vid==0x046D && usb.Pid==0xC52B && VmPlan.Format(usb)=="vid:0x046d pid:0xc52b","vm usb id parse");
                 string bt=@"\\?\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&0002046d_PID&b023&Col01#8&1b2c&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91e6bf6}";
-                Assert(VmPlan.IsBluetooth(bt) && !VmPlan.TryParseUsb(bt,out usb),"vm bluetooth rejected");
+                VmPlan.UsbId ignored; Assert(VmPlan.IsBluetooth(bt) && !VmPlan.TryParseUsb(bt,out ignored),"vm bluetooth rejected");
                 string vmx=".encoding = \"UTF-8\"\r\ndisplayName = \"Seat Two\"\r\nusb.present = \"FALSE\"\r\nusb.autoConnect.device0 = \"vid:0x1111 pid:0x2222\"\r\nmemsize = \"4096\"\r\n";
                 string patched=VmPlan.ApplyUsb(vmx,new System.Collections.Generic.List<VmPlan.UsbId> { usb });
                 Assert(patched.Contains("memsize = \"4096\"\r\n") && !patched.Contains("0x1111") && !patched.Contains("FALSE") && patched.Contains("usb.generic.allowHID = \"TRUE\"\r\n") && patched.Contains("usb.autoConnect.device0 = \"vid:0x046d pid:0xc52b\"\r\n") && !patched.Contains("allowLastHID"),"vmx usb rewrite");
