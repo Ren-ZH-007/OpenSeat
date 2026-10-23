@@ -38,7 +38,7 @@ jobs:
         run: |
           & .\dist\OpenSeat.Tests.exe --self-test 2>&1 | Tee-Object -FilePath native-test-results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Native self-tests failed' }
-          if (-not (Select-String -Path native-test-results.txt -Pattern '28 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
+          if (-not (Select-String -Path native-test-results.txt -Pattern '29 checks passed' -Quiet)) { throw 'Expected assertion count not found' }
       - name: Package executable and checksums
         id: package
         shell: pwsh
@@ -51,7 +51,7 @@ jobs:
           @'
           OpenSeat 0.3.0 Windows x64 preview
           Run OpenSeat.exe directly. Requires .NET Framework 4.x.
-          This package was compiled on Windows and passed 28 native assertions.
+          This package was compiled on Windows and passed 29 native assertions.
           Physical three-seat hardware has NOT been validated.
           Independent desktops for seats 2 and 3 require VMware Workstation Pro virtual machines (see manual chapter 14).
           The generated UI mockup is NOT implemented in this release.
@@ -73,7 +73,7 @@ jobs:
           下载 OpenSeat-0.3.0-preview.1-win-x64.zip，解压后直接运行 OpenSeat.exe，无需安装 Python 或本机编译。包内附《使用说明书.md》。
           目标环境：Windows 10 及以上 x64，需 .NET Framework 4.x。
 
-          - 已在 GitHub Windows runner 编译，28 项原生自检通过。
+          - 已在 GitHub Windows runner 编译，29 项原生自检通过。
           - 新增屏幕监控：工位卡片上方实时缩略图，点击打开放大监控窗（只读）。
           - 新增虚拟机工位：配合 VMware Workstation Pro，工位 2、3 各运行一台 Windows 虚拟机，键鼠通过 USB 直通独占，三人可各自运行任意软件。
           - 虚拟机工位要求三套键鼠为不同型号、非蓝牙；虚拟机内无法使用主机 RTX 显卡；每台虚拟机的 Windows 需单独授权。
