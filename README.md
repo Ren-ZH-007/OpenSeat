@@ -6,7 +6,15 @@
 
 显卡型号只是目标范围，不是兼容保证。本程序不检查 GPU 性能，也不实现 GPU 隔离。图形输出以 Windows 当前实际启用的三个独立显示区域为准。
 
-## 如何启动（主入口，无需 Python）
+## 下载已编译版本
+
+[下载 Windows x64 便携包](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.0-preview.1/OpenSeat-0.2.0-preview.1-win-x64.zip) · [直接下载 EXE](https://github.com/Ren-ZH-007/OpenSeat/releases/download/v0.2.0-preview.1/OpenSeat.exe) · [发布说明](https://github.com/Ren-ZH-007/OpenSeat/releases/tag/v0.2.0-preview.1)
+
+私有仓库需要登录有权限的 GitHub 账号。便携包解压后运行 `OpenSeat.exe`，无需 Python 或本机编译；需 .NET Framework 4.x。程序未进行代码签名。这是技术验证预发布版，模拟效果图尚未应用到实际界面。
+
+便携包内的 README 为发布前源码说明快照，编译状态请以包内 `START-HERE.txt`、`native-test-results.txt` 及本页为准。
+
+## 从源码编译（无需 Python）
 
 1. 把整个 ZIP 解压到一个可写目录。
 2. 在 Windows x64 上双击 `start.cmd`。
@@ -47,7 +55,7 @@
 
 | 项目 | 实现状态 |
 |---|---|
-| 固定三工位原生 Windows Forms 界面 | 源码完成，待 Windows 编译与界面验证 |
+| 固定三工位原生 Windows Forms 界面 | Windows x64 编译通过，界面和真实硬件待验收 |
 | 显示器枚举、屏幕编号 | Windows API 路径完成，待硬件验证 |
 | 按实际设备输入绑定鼠标/键盘 | Raw Input 路径完成，待硬件验证 |
 | 三屏应用内指针与计数分流 | 实现，不等于 Windows 桌面输入隔离 |
@@ -61,7 +69,7 @@
 
 ## 测试状态
 
-当前制作环境为 Linux，没有 C# 编译器或 Windows GUI，**本次未成功编译或运行原生程序，不能把它称为已验收软件**。
+已在 GitHub Windows runner 完成 x64 编译，14 项原生自检通过。[查看构建记录](https://github.com/Ren-ZH-007/OpenSeat/actions/runs/39891042142)。自检不等于三套硬件验收，也不代表已实现 Windows 桌面隔离。
 
 附 `self-test.cmd`：在 Windows 本机构建后执行 14 项断言，覆盖三工位数量、设备/屏幕重复、空字段、配置往返/原子替换、拒绝无效覆盖，以及 Raw Input 鼠标/键盘包结构与截断处理。自检不依赖三屏硬件；通过后仍须按上面的实际操作步骤测试。
 
